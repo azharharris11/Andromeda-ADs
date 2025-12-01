@@ -38,25 +38,36 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
     // FORMAT RULES (The "Chassis")
     // We define the non-negotiable base texture/quality for each format group.
     
-    // 1. LO-FI / RAW
+    // 1. INSTAGRAM NATIVE / APP UI (NEW CATEGORY)
+    if (
+        format === CreativeFormat.STORY_POLL || 
+        format === CreativeFormat.REELS_THUMBNAIL || 
+        format === CreativeFormat.DM_NOTIFICATION ||
+        format === CreativeFormat.TWITTER_REPOST ||
+        format === CreativeFormat.PHONE_NOTES ||
+        format === CreativeFormat.GMAIL_UX ||
+        format === CreativeFormat.CHAT_CONVERSATION
+    ) {
+        return "style:mobile-app-screenshot, quality:high-fidelity-ui, texture:screen-pixel, vibe:authentic-social-media, perspective:flat-2d-screen-capture";
+    }
+
+    // 2. LO-FI / RAW
     if (
         format === CreativeFormat.UGLY_VISUAL || 
         format === CreativeFormat.REDDIT_THREAD ||
         format === CreativeFormat.POV_HANDS ||
         format === CreativeFormat.UGC_MIRROR ||
-        format === CreativeFormat.US_VS_THEM ||
-        format === CreativeFormat.PHONE_NOTES || 
-        format === CreativeFormat.STORY_POLL
+        format === CreativeFormat.US_VS_THEM
     ) {
         return "texture:grainy/noise, lighting:harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera";
     }
 
-    // 2. MEME
+    // 3. MEME
     if (format === CreativeFormat.MEME || format === CreativeFormat.MS_PAINT) {
         return "style:ms-paint/doodle, quality:low-res/pixelated, vibe:internet-humor";
     }
 
-    // 3. VECTOR / UI
+    // 4. VECTOR / UI (Minimal)
     if (
         format === CreativeFormat.CAROUSEL_EDUCATIONAL ||
         format === CreativeFormat.GRAPH_CHART ||
@@ -64,17 +75,13 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
         format === CreativeFormat.WHITEBOARD ||
         format === CreativeFormat.TIMELINE_JOURNEY ||
         format === CreativeFormat.CHECKLIST_TODO ||
-        format === CreativeFormat.TWITTER_REPOST ||
-        format === CreativeFormat.GMAIL_UX ||
         format === CreativeFormat.SEARCH_BAR ||
-        format === CreativeFormat.DM_NOTIFICATION ||
-        format === CreativeFormat.CHAT_CONVERSATION ||
         format === CreativeFormat.REMINDER_NOTIF
     ) {
         return "style:flat-vector/minimal-ui, shading:none, depth:2d, color:solid-hex-codes";
     }
 
-    // 4. HIGH END / CINEMATIC (The only place where 'styleContext' truly overrides quality)
+    // 5. HIGH END / CINEMATIC (The only place where 'styleContext' truly overrides quality)
     // We inject the Creative Director's vision here.
     return `${style}, quality:8k/masterpiece/sharp-focus`;
 };
@@ -590,7 +597,7 @@ const constructImagePrompt = (
     SCENE: ${scene}
     VIBE: ${vibe}
     TECH_SPECS: ${keywords}
-    RULES: No text labels. No frames.
+    RULES: Authentic look. If UI is requested, ensure icons and text layouts look native (like a screenshot).
     `;
     
     if (targetCountry) {
@@ -622,7 +629,66 @@ export const generateCreativeImage = async (
 
   // We optimize these descriptions to be concise for the prompt
   switch (format) {
-    // --- UI & SOCIAL (FLAT) ---
+    // --- INSTAGRAM NATIVE / APP UI ---
+    case CreativeFormat.STORY_POLL:
+        medium = "SMARTPHONE SCREENSHOT (INSTAGRAM STORY)";
+        isLoFi = true; 
+        if (!sceneDescription) {
+            sceneDescription = `
+            Visual is a vertical phone screenshot of an Instagram Story. 
+            BACKGROUND: Authentic photo/video of ${project.productName} in a lifestyle setting.
+            UI OVERLAY: 
+            1. Top: Thin white progress bar dashes + Profile picture & name '${personaName}' in top left + 'X' icon top right.
+            2. Center: A standard Instagram interactive POLL STICKER. Question: '${angleHeadline}?'. Options: 'Yes / Definitely'.
+            3. Bottom: 'Send message' pill-shaped text field + Heart icon.
+            Perspective: Flat 2D screen capture.
+            `;
+        }
+        break;
+
+    case CreativeFormat.REELS_THUMBNAIL:
+        medium = "INSTAGRAM REELS INTERFACE";
+        if (!sceneDescription) {
+            sceneDescription = `
+            Visual is a vertical phone screenshot of an Instagram Reel.
+            CONTENT: Engaging video frame of ${project.productName}. 
+            UI OVERLAY:
+            1. Right Side column icons (from top to bottom): Heart (Like), Comment Bubble, Paper Plane (Share), Three dots.
+            2. Bottom Left: Profile text '${personaName}' and caption text '${angleHeadline}' overlaid on the video.
+            3. Very Bottom: Music track ticker icon.
+            Vibe: Viral, high energy.
+            `;
+        }
+        break;
+
+    case CreativeFormat.DM_NOTIFICATION:
+        medium = "IPHONE LOCKSCREEN NOTIFICATION";
+        isVector = true;
+        sceneDescription = `
+        Realistic iPhone Lockscreen.
+        BACKGROUND: Blurred depth-of-field lifestyle wallpaper (warm cozy vibe).
+        UI ELEMENT: A distinct 'Instagram' push notification banner in the center.
+        ICON: Instagram App Icon.
+        TITLE: 'Instagram'.
+        MESSAGE: 'Direct Message from ${project.productName}: ${angleHeadline}'.
+        Time: 09:41 at the top.
+        `;
+        break;
+
+    case CreativeFormat.UGC_MIRROR:
+        medium = "MIRROR SELFIE (INSTAGRAM STORY STYLE)";
+        isLoFi = true;
+        if (!sceneDescription) {
+            sceneDescription = `
+            Gen-Z style bathroom mirror selfie taken with a phone covering the face.
+            SUBJECT: Person holding ${project.productName} visibly.
+            STYLE: Flash photography, slight grain, authentic aesthetic.
+            UI OVERLAY: Instagram Story text overlay typed in 'Neon' or 'Modern' font saying: "${angleHeadline}".
+            Drawing tool doodles (scribbles) around the product.
+            `;
+        }
+        break;
+
     case CreativeFormat.TWITTER_REPOST:
         medium = "FLAT VECTOR UI SCREENSHOT";
         isVector = true;
@@ -640,8 +706,7 @@ export const generateCreativeImage = async (
         isVector = true;
         sceneDescription = `Apple Notes interface. Background: Yellow texture. Text: '${angleHeadline}'. UI: Back arrow.`;
         break;
-
-    case CreativeFormat.DM_NOTIFICATION:
+    
     case CreativeFormat.REMINDER_NOTIF:
         medium = "FLAT LOCKSCREEN UI";
         isVector = true;
@@ -674,12 +739,6 @@ export const generateCreativeImage = async (
         isLoFi = true;
         if (!sceneDescription) sceneDescription = `POV looking down at hands holding ${project.productName}. Background: messy room. Lighting: Flash.`;
         break;
-    
-    case CreativeFormat.UGC_MIRROR:
-        medium = "MIRROR SELFIE PHOTO";
-        isLoFi = true;
-        if (!sceneDescription) sceneDescription = `Bathroom mirror selfie. Hand holding phone. ${project.productName} on counter. Casual influencer vibe.`;
-        break;
 
     case CreativeFormat.MEME:
     case CreativeFormat.MS_PAINT:
@@ -690,14 +749,7 @@ export const generateCreativeImage = async (
 
     // --- HYBRID ---
     case CreativeFormat.STORY_POLL:
-        medium = "PHONE PHOTO + UI OVERLAY";
-        isLoFi = true;
-        if (!sceneDescription) sceneDescription = `Vertical shot of ${project.productName}. Overlay: Instagram 'Poll' sticker. Question: '${angleHeadline}?'.`;
-        break;
-
-    case CreativeFormat.REELS_THUMBNAIL:
-        medium = "VIDEO THUMBNAIL";
-        if (!sceneDescription) sceneDescription = `Action shot of ${project.productName}. Overlay: Play button. Bold text: '${angleHeadline}'.`;
+        // Already handled above
         break;
 
     // --- VECTOR / EDUCATIONAL ---

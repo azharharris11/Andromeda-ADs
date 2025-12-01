@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { NodeData, NodeType, CampaignStage } from '../types';
-import { User, Zap, Image as ImageIcon, Target, Award, RefreshCw, Sparkles, TrendingUp, DollarSign, MousePointer2, Ghost, Mic, Layers, Coins, Cpu } from 'lucide-react';
+import { User, Zap, Image as ImageIcon, Target, Award, RefreshCw, Sparkles, TrendingUp, DollarSign, MousePointer2, Ghost, Mic, Layers, Cpu, Archive } from 'lucide-react';
 
 interface NodeProps {
   data: NodeData;
@@ -230,14 +230,22 @@ const Node: React.FC<NodeProps> = ({ data, selected, onClick, onAction, isGridVi
             )}
             </>
         )}
-        {!isGridView && data.type === NodeType.CREATIVE && data.isWinning && !isScaling && !isGhost && (
+        
+        {/* MANUAL PROMOTION ALLOWED FOR ALL CREATIVES */}
+        {!isGridView && data.type === NodeType.CREATIVE && !isScaling && !isGhost && (
             <button 
             onClick={(e) => { e.stopPropagation(); onAction('promote_creative', data.id); }}
-            className="w-full py-2 bg-amber-400 hover:bg-amber-300 text-amber-950 text-xs font-bold rounded-lg shadow-md shadow-amber-200 transition-all flex items-center justify-center gap-2"
+            className={`w-full py-2 text-xs font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 ${
+                data.isWinning 
+                    ? 'bg-amber-400 hover:bg-amber-300 text-amber-950 shadow-amber-200' // Gold for Winners
+                    : 'bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-200' // Neutral for Manual
+            }`}
             >
-            <Award className="w-3.5 h-3.5" /> PROMOTE TO VAULT
+            {data.isWinning ? <Award className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />} 
+            {data.isWinning ? 'PROMOTE WINNER' : 'MOVE TO VAULT'}
             </button>
         )}
+
         {isGhost && (
             <div className="w-full py-2 text-xs text-center text-slate-400 font-mono">
                 SCALED TO VAULT

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
-import { NodeData, AdCopy, ProjectContext } from '../types';
-import { X, ThumbsUp, MessageCircle, Share2, Globe, MoreHorizontal, Download, Smartphone, Layout, Sparkles, BrainCircuit, Mic, Play, Pause, Wand2, ChevronLeft, ChevronRight, Layers, RefreshCw } from 'lucide-react';
+import { NodeData, AdCopy, ProjectContext, CampaignStage } from '../types';
+import { X, ThumbsUp, MessageCircle, Share2, Globe, MoreHorizontal, Download, Smartphone, Layout, Sparkles, BrainCircuit, Mic, Play, Pause, Wand2, ChevronLeft, ChevronRight, Layers, RefreshCw, Archive } from 'lucide-react';
 import { generateAdScript, generateVoiceover } from '../services/geminiService';
 
 interface InspectorProps {
@@ -9,7 +9,8 @@ interface InspectorProps {
   onClose: () => void;
   onAnalyze?: (nodeId: string) => void;
   onUpdate?: (id: string, data: Partial<NodeData>) => void;
-  onRegenerate?: (id: string, aspectRatio: string) => void; // New Prop
+  onRegenerate?: (id: string, aspectRatio: string) => void; 
+  onPromote?: (id: string) => void; // New Prop for promotion
   project?: ProjectContext;
 }
 
@@ -27,8 +28,8 @@ const decodeAudioData = async (base64: string, ctx: AudioContext): Promise<Audio
     return buffer;
 };
 
-const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdate, onRegenerate, project }) => {
-  const { adCopy, imageUrl, carouselImages, title, format, postId, aiInsight, audioScript, audioBase64 } = node;
+const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdate, onRegenerate, onPromote, project }) => {
+  const { adCopy, imageUrl, carouselImages, title, format, postId, aiInsight, audioScript, audioBase64, stage } = node;
   const [activeTab, setActiveTab] = useState<'PREVIEW' | 'INSIGHTS' | 'AUDIO'>('PREVIEW');
   const [aspectRatio, setAspectRatio] = useState<'SQUARE' | 'VERTICAL'>('SQUARE');
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
@@ -36,6 +37,8 @@ const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdat
   const [isPlaying, setIsPlaying] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0); // 0 = Cover, 1+ = Carousel Slides
   
+  const isLabAsset = stage === CampaignStage.TESTING;
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
 
@@ -92,14 +95,16 @@ const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdat
 
   const handleDownload = () => {
       if (!imageUrl) return;
-      
-      // Simple download trigger
       const link = document.createElement('a');
       link.href = imageUrl;
       link.download = `${title.replace(/\s+/g, '_')}_${format.replace(/\s+/g, '_')}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+  };
+
+  const handlePromote = () => {
+      if (onPromote) onPromote(node.id);
   };
 
   return (
@@ -109,7 +114,14 @@ const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdat
           <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
           <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Ad Inspector</h2>
         </div>
-        <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-md text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
+        <div className="flex items-center gap-2">
+            {isLabAsset && onPromote && (
+                 <button onClick={handlePromote} className="p-1.5 hover:bg-amber-100 text-slate-400 hover:text-amber-600 rounded-md transition-colors" title="Promote to Vault">
+                     <Archive className="w-4 h-4" />
+                 </button>
+            )}
+            <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-md text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
+        </div>
       </div>
 
       <div className="flex p-1 mx-4 mt-4 bg-slate-100 rounded-lg">
@@ -163,7 +175,7 @@ const Inspector: React.FC<InspectorProps> = ({ node, onClose, onAnalyze, onUpdat
                                     </div>
                                     <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
                                         {allImages.map((_, idx) => (
-                                            <div key={idx} className={`w-1.5 h-1.5 rounded-full shadow-sm ${idx === carouselIndex ? 'bg-blue-500 scale-125' : 'bg-white/70'}`}></div>
+                                            <div key={idx} className={`w-1.5 h-1.5 rounded-full shadow-sm transition-all ${idx === carouselIndex ? 'bg-blue-500 scale-125' : 'bg-white/70'}`}></div>
                                         ))}
                                     </div>
                                 </>

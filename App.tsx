@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef } from 'react';
 import { HashRouter } from 'react-router-dom';
 import { Layers, Settings, Activity, Microscope, ShieldCheck, X, RefreshCw, Globe, Sparkles, Image as ImageIcon, Upload, Package, Megaphone, Filter, Target, FileText, MapPin, Info, Smartphone } from 'lucide-react';
@@ -115,6 +114,11 @@ const App = () => {
   const addNode = (node: NodeData) => { setNodes(prev => [...prev, node]); };
   const addEdge = (source: string, target: string) => { setEdges(prev => [...prev, { id: `${source}-${target}`, source, target }]); };
   const updateNode = (id: string, updates: Partial<NodeData>) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n)); };
+  
+  // Handle dragging nodes
+  const handleNodeMove = (id: string, x: number, y: number) => {
+      setNodes(prev => prev.map(n => n.id === id ? { ...n, x, y } : n));
+  };
 
   // --- LOGIC: MARKET AWARENESS -> FUNNEL STAGE ---
   const handleAwarenessChange = (awareness: MarketAwareness) => {
@@ -613,6 +617,7 @@ const App = () => {
           onNodeAction={handleNodeAction}
           selectedNodeId={selectedNodeId}
           onSelectNode={setSelectedNodeId}
+          onNodeMove={handleNodeMove}
         />
 
         {/* TOP BAR */}
@@ -647,6 +652,7 @@ const App = () => {
                 onClose={() => setSelectedNodeId(null)} 
                 onUpdate={updateNode}
                 onRegenerate={handleRegenerateNode}
+                onPromote={(id) => handleNodeAction('promote_creative', id)} // Pass promoter
                 project={project}
             />
           </div>

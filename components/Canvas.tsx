@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { NodeData, Edge, CampaignStage } from '../types';
 import Node from './Node';
@@ -13,13 +14,20 @@ interface CanvasProps {
   onNodeAction: (action: string, nodeId: string) => void;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  onNodeMove: (id: string, x: number, y: number) => void; // New prop for moving nodes
 }
 
-const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeAction, selectedNodeId, onSelectNode }, ref) => {
+const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeAction, selectedNodeId, onSelectNode, onNodeMove }, ref) => {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(0.8);
-  const [isDragging, setIsDragging] = useState(false);
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
+  
+  // Canvas Panning State
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
+
+  // Node Dragging State
+  const [draggedNode, setDraggedNode] = useState<{ id: string; startX: number; startY: number; initialNodeX: number; initialNodeY: number } | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
 
@@ -67,22 +75,59 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeActi
   }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.node-interactive')) return;
-    setIsDragging(true);
-    setLastPos({ x: e.clientX, y: e.clientY });
-    // Deselect if clicking on background
+    const target = e.target as HTMLElement;
+
+    // 1. Check if clicking a button/interactive element inside a node (Don't drag)
+    if (target.closest('button') || target.closest('input') || target.closest('select')) return;
+
+    // 2. Check if clicking a Node (Start Node Drag)
+    const nodeElement = target.closest('.node-interactive');
+    if (nodeElement) {
+       const nodeId = nodeElement.getAttribute('data-id');
+       if (nodeId) {
+           const node = nodes.find(n => n.id === nodeId);
+           if (node) {
+               setDraggedNode({
+                   id: nodeId,
+                   startX: e.clientX,
+                   startY: e.clientY,
+                   initialNodeX: node.x,
+                   initialNodeY: node.y
+               });
+               onSelectNode(nodeId); 
+           }
+       }
+       return;
+    }
+
+    // 3. Otherwise, Start Canvas Pan
+    setIsPanning(true);
+    setLastMousePos({ x: e.clientX, y: e.clientY });
     onSelectNode(null);
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - lastPos.x;
-    const dy = e.clientY - lastPos.y;
+    // 1. Handle Node Dragging
+    if (draggedNode) {
+        const deltaX = (e.clientX - draggedNode.startX) / zoom;
+        const deltaY = (e.clientY - draggedNode.startY) / zoom;
+        onNodeMove(draggedNode.id, draggedNode.initialNodeX + deltaX, draggedNode.initialNodeY + deltaY);
+        return;
+    }
+    
+    // 2. Handle Canvas Panning
+    if (!isPanning) return;
+    const dx = e.clientX - lastMousePos.x;
+    const dy = e.clientY - lastMousePos.y;
     setOffset(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    setLastPos({ x: e.clientX, y: e.clientY });
+    setLastMousePos({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseUp = () => { setIsDragging(false); };
+  const handleMouseUp = () => { 
+      setIsPanning(false); 
+      setDraggedNode(null);
+  };
+  
   const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation();
     setZoom(Math.min(Math.max(0.2, zoom - e.deltaY * 0.0005), 2));
@@ -93,7 +138,6 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeActi
       const sourceNode = nodes.find(n => n.id === edge.source);
       const targetNode = nodes.find(n => n.id === edge.target);
       
-      // Safety check: In Lab view, we might not have the target node if it was promoted (unless it's a ghost)
       if (!sourceNode || !targetNode) return null;
 
       const sourceX = sourceNode.x + NODE_WIDTH; 
@@ -101,7 +145,6 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeActi
       const targetX = targetNode.x;
       const targetY = targetNode.y + 50;
 
-      // Simple Bezier for Lab View (Since we don't have cross-zone lines anymore)
       const dist = targetX - sourceX;
       const controlDist = Math.max(dist * 0.5, 100); 
       const path = `M ${sourceX} ${sourceY} C ${sourceX + controlDist} ${sourceY}, ${targetX - controlDist} ${targetY}, ${targetX} ${targetY}`;
@@ -119,7 +162,7 @@ const Canvas = forwardRef<CanvasHandle, CanvasProps>(({ nodes, edges, onNodeActi
   return (
     <div 
       ref={containerRef}
-      className="w-full h-full overflow-hidden bg-[#F8FAFC] relative cursor-grab active:cursor-grabbing selection:bg-blue-100"
+      className={`w-full h-full overflow-hidden bg-[#F8FAFC] relative selection:bg-blue-100 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
       onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onWheel={handleWheel}
     >
       <div style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: '0 0', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
