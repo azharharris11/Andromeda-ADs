@@ -24,6 +24,7 @@ const INITIAL_PROJECT: ProjectContext = {
 
 const FORMAT_GROUPS: Record<string, CreativeFormat[]> = {
   "Carousel Specials (High Engagement)": [
+    CreativeFormat.CAROUSEL_REAL_STORY, // NEW
     CreativeFormat.CAROUSEL_EDUCATIONAL,
     CreativeFormat.CAROUSEL_TESTIMONIAL,
     CreativeFormat.CAROUSEL_PANORAMA,
@@ -254,10 +255,17 @@ const App = () => {
     try {
         const personaName = node.meta?.personaName || "User";
         const angle = node.meta?.angle || node.title;
-        const styleContext = node.meta?.styleContext || "";
+        // Fallback for legacy nodes that only had styleContext (visualScene)
+        const visualScene = node.meta?.visualScene || node.meta?.styleContext || ""; 
+        const visualStyle = node.meta?.visualStyle || "";
+        const technicalPrompt = node.meta?.technicalPrompt || "";
         const format = node.format as CreativeFormat;
 
-        const imgResult = await generateCreativeImage(project, personaName, angle, format, styleContext, aspectRatio);
+        const imgResult = await generateCreativeImage(
+            project, personaName, angle, format, 
+            visualScene, visualStyle, technicalPrompt, 
+            aspectRatio
+        );
         
         if (imgResult.data) {
             updateNode(nodeId, { 
@@ -311,7 +319,6 @@ const App = () => {
         meta: { 
             personaName: parentNode.meta?.personaName,
             angle: parentNode.title, // Critical: Pass angle to child for context
-            styleContext: "" 
         }
       };
       newNodes.push(nodeData);
@@ -333,9 +340,9 @@ const App = () => {
             let accumulatedOutput = 0;
             let imageCount = 0;
 
-            // 1. STRATEGIST AGENT (The Bridge)
+            // 1. STRATEGIST AGENT (The Bridge) - ART DIRECTOR UPGRADE
             // Generate a cohesive concept first.
-            updateNode(node.id, { description: "Strategist: Developing concept..." });
+            updateNode(node.id, { description: "Art Director: Defining visual style..." });
             const conceptResult = await generateCreativeConcept(project, personaName, angle, fmt);
             accumulatedInput += conceptResult.inputTokens;
             accumulatedOutput += conceptResult.outputTokens;
@@ -352,9 +359,20 @@ const App = () => {
             const complianceStatus = await checkAdCompliance(adCopy);
             adCopy.complianceNotes = complianceStatus;
 
-            // 4. VISUALIZER AGENT (Uses Concept + Format)
+            // 4. VISUALIZER AGENT (Uses Concept + Format + Style)
             updateNode(node.id, { description: "Visualizer: Rendering..." });
-            const imgResult = await generateCreativeImage(project, personaName, angle, fmt, concept.visualScene, "1:1");
+            
+            const imgResult = await generateCreativeImage(
+                project, 
+                personaName, 
+                angle, 
+                fmt, 
+                concept.visualScene, 
+                concept.visualStyle,
+                concept.technicalPrompt,
+                "1:1"
+            );
+            
             accumulatedInput += imgResult.inputTokens;
             accumulatedOutput += imgResult.outputTokens;
             const imageUrl = imgResult.data;
@@ -366,12 +384,20 @@ const App = () => {
                 fmt === CreativeFormat.CAROUSEL_EDUCATIONAL ||
                 fmt === CreativeFormat.CAROUSEL_TESTIMONIAL ||
                 fmt === CreativeFormat.CAROUSEL_PANORAMA ||
-                fmt === CreativeFormat.CAROUSEL_PHOTO_DUMP
+                fmt === CreativeFormat.CAROUSEL_PHOTO_DUMP ||
+                fmt === CreativeFormat.CAROUSEL_REAL_STORY // NEW Check
             );
             
             if (isCarousel) {
                 // Pass the concept's visual style to the carousel generator for consistency
-                const slidesResult = await generateCarouselSlides(project, fmt, angle, concept.visualScene);
+                const slidesResult = await generateCarouselSlides(
+                    project, 
+                    fmt, 
+                    angle, 
+                    concept.visualScene, 
+                    concept.visualStyle, 
+                    concept.technicalPrompt
+                );
                 accumulatedInput += slidesResult.inputTokens;
                 accumulatedOutput += slidesResult.outputTokens;
                 carouselImages = slidesResult.data;
@@ -393,7 +419,12 @@ const App = () => {
                 inputTokens: accumulatedInput,
                 outputTokens: accumulatedOutput,
                 estimatedCost: totalCost,
-                meta: { ...node.meta, styleContext: concept.visualScene } // Save style context for regeneration
+                meta: { 
+                    ...node.meta, 
+                    visualScene: concept.visualScene,
+                    visualStyle: concept.visualStyle,
+                    technicalPrompt: concept.technicalPrompt
+                } // Save style context for regeneration
             });
         } catch (e) {
             console.error("Error generating creative node", e);

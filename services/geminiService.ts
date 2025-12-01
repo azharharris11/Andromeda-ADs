@@ -63,9 +63,10 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
         format === CreativeFormat.UGC_MIRROR ||
         format === CreativeFormat.US_VS_THEM ||
         format === CreativeFormat.HANDHELD_TWEET || // NEW
-        format === CreativeFormat.STICKY_NOTE_REALISM // NEW
+        format === CreativeFormat.STICKY_NOTE_REALISM || // NEW
+        format === CreativeFormat.CAROUSEL_REAL_STORY // NEW (Influencer style)
     ) {
-        return "texture:grainy/noise, lighting:harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera, focus:sharp-product-blurry-background";
+        return "texture:grainy/noise, lighting:natural-window/harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera-iphone, focus:sharp-subject-blurry-background";
     }
 
     // 3. MEME
@@ -348,23 +349,32 @@ export const generateCreativeConcept = async (
     const countryContext = project.targetCountry ? `TARGET COUNTRY: ${project.targetCountry}. Visuals must feature people/environments native to ${project.targetCountry}.` : '';
 
     const prompt = `
-        Role: Creative Director.
-        Task: Create a cohesive Ad Concept connecting Visuals and Copy.
+        Role: World-Class Creative Art Director & Strategist.
+        Task: Create a cohesive Ad Concept that is VISUALLY DISTINCT.
         Product: ${project.productName}. 
-        Target: ${personaName}. 
+        Target Persona: ${personaName}. 
         Hook: ${angle}.
         Format: ${format}.
         ${brandInstruction}
         ${countryContext}
+        
+        CRITICAL VISUAL GOAL: We need "Strategic Creative Diversity".
+        The visual must NOT look like a generic ad. It must have a specific "Texture" and "Vibe".
+        
+        Define specific Art Direction details:
+        1. Lighting (e.g., Harsh flash, Golden hour, Studio softbox, Neon, Darkroom).
+        2. Camera/Device (e.g., iPhone 6 Grainy, 35mm Film, Security Cam, Sharp Mirrorless, GoPro POV).
+        3. Color Grade (e.g., Muted, Vibrant Gen-Z, Pastel, Dark & Moody, Monochrome).
 
         The Visual Scene and the Copy Direction must perfectly match.
-        Example: If visual is "Chaotic messy desk", copy should be "Feeling overwhelmed?".
 
         Return JSON:
         {
-            "visualScene": "Detailed description of the imagery/scene. Mention the demographics (${project.targetCountry} ethnicity/looks).",
+            "visualScene": "Detailed description of the action/subject.",
+            "visualStyle": "Specific keywords for Lighting, Texture, and Camera Angle (e.g. 'Flash photography, grainy texture, messy background').",
+            "technicalPrompt": "Comma-separated visual tags for the image generator (e.g. '35mm, f/1.8, bokeh, motion blur, 4k').",
             "copyAngle": "The specific psychological angle the copywriter should take.",
-            "rationale": "Why this works."
+            "rationale": "Why this specific visual style captures this persona."
         }
     `;
 
@@ -378,10 +388,12 @@ export const generateCreativeConcept = async (
                     type: Type.OBJECT,
                     properties: {
                         visualScene: { type: Type.STRING },
+                        visualStyle: { type: Type.STRING },
+                        technicalPrompt: { type: Type.STRING },
                         copyAngle: { type: Type.STRING },
                         rationale: { type: Type.STRING }
                     },
-                    required: ["visualScene", "copyAngle", "rationale"]
+                    required: ["visualScene", "visualStyle", "technicalPrompt", "copyAngle", "rationale"]
                 }
             }
         }));
@@ -393,7 +405,7 @@ export const generateCreativeConcept = async (
         };
     } catch (e) {
         return {
-            data: { visualScene: `Shot of ${project.productName}`, copyAngle: angle, rationale: "Default" },
+            data: { visualScene: `Shot of ${project.productName}`, visualStyle: "Studio lighting", technicalPrompt: "high quality", copyAngle: angle, rationale: "Default" },
             inputTokens: 0,
             outputTokens: 0
         }
@@ -595,8 +607,8 @@ const constructImagePrompt = (
     context: string, 
     medium: string, 
     scene: string, 
-    vibe: string, 
-    keywords: string,
+    visualStyle: string, 
+    technicalTags: string,
     hasReferenceImage: boolean = false,
     targetCountry: string = ""
 ) => {
@@ -605,10 +617,10 @@ const constructImagePrompt = (
     CMD: Generate Image.
     SUBJECT: ${subject}
     CONTEXT: ${context}
-    MEDIUM: ${medium}
+    MEDIUM: ${medium} (Influenced by: ${visualStyle})
     SCENE: ${scene}
-    VIBE: ${vibe}
-    TECH_SPECS: ${keywords}
+    VISUAL STYLE: ${visualStyle}
+    TECH SPECS: ${technicalTags}
     RULES: Authentic look. If UI is requested, ensure icons and text layouts look native (like a screenshot).
     `;
     
@@ -628,14 +640,16 @@ export const generateCreativeImage = async (
   personaName: string,
   angleHeadline: string,
   format: CreativeFormat,
-  styleContext: string, // This now comes from the 'Concept' visual scene
+  visualScene: string,
+  visualStyle: string,
+  technicalPrompt: string,
   aspectRatio: string = "1:1"
 ): Promise<GenResult<string | null>> => {
   
   // --- LOGIC DEFINITION (Client Side - No Token Cost) ---
   
   let medium = "Photography";
-  let sceneDescription = styleContext; // Use the Creative Director's detailed scene
+  let sceneDescription = visualScene; // Use the Creative Director's detailed scene
   let isLoFi = false;
   let isVector = false;
 
@@ -867,6 +881,13 @@ export const generateCreativeImage = async (
         if (!sceneDescription) sceneDescription = `Award-winning product shot of ${project.productName}. Composition: Minimal.`;
         break;
 
+    // --- REAL PEOPLE STORY (NEW) ---
+    case CreativeFormat.CAROUSEL_REAL_STORY:
+        medium = "CANDID SMARTPHONE PHOTOGRAPHY";
+        isLoFi = true; // Essential for the real look
+        if (!sceneDescription) sceneDescription = `A real person holding ${project.productName} in a candid selfie style. Background is a normal bedroom or living room.`;
+        break;
+
     default:
         medium = "PRODUCT PHOTO";
         if (!sceneDescription) sceneDescription = `Standard commercial shot of ${project.productName}.`;
@@ -881,14 +902,18 @@ export const generateCreativeImage = async (
 
   const technicalBoosters = getVisualEnhancers(activeStyle, format);
   
+  // MERGE AI ART DIRECTION WITH CHASSIS
+  // We combine the format-specific enhancers with the AI's custom technical tags
+  const combinedTechnicalTags = `${technicalBoosters}, ${technicalPrompt}`;
+
   // Construct concise prompt to save tokens
   const prompt = constructImagePrompt(
       project.productName, 
       angleHeadline, 
       medium, 
       sceneDescription, 
-      activeStyle, 
-      technicalBoosters,
+      visualStyle || activeStyle, // Prioritize AI Visual Style
+      combinedTechnicalTags,
       !!project.productReferenceImage, // Pass true if reference image exists
       project.targetCountry || "" // Pass Target Country
   );
@@ -900,7 +925,9 @@ export const generateCarouselSlides = async (
     project: ProjectContext,
     format: CreativeFormat,
     angleHeadline: string,
-    styleContext: string
+    visualScene: string,
+    visualStyle: string,
+    technicalPrompt: string
 ): Promise<GenResult<string[]>> => {
     const isEducational = format === CreativeFormat.CAROUSEL_EDUCATIONAL;
     
@@ -911,6 +938,7 @@ export const generateCarouselSlides = async (
     const countryContext = project.targetCountry ? `Language: ${project.targetCountry} Native.` : '';
 
     if (isEducational) {
+       // ... existing educational logic ...
        // --- JSON PARSING SAFETY ---
        const copyPrompt = `
           Task: Write 4 short carousel slide texts for: "${angleHeadline}".
@@ -936,20 +964,44 @@ export const generateCarouselSlides = async (
             const enhancers = getVisualEnhancers("flat", format);
 
             slidePrompts = texts.map((t: string) => 
-                `CMD: Gen Flat Vector Slide. CENTER TEXT: "${t}". STYLE: Minimal geometric. SPECS: ${enhancers}`
+                `CMD: Gen Flat Vector Slide. CENTER TEXT: "${t}". STYLE: Minimal geometric. SPECS: ${enhancers}, ${technicalPrompt}`
             );
        } catch (e) {
             console.error("Educational Carousel Text Gen Failed", e);
             slidePrompts = ["Hook", "Problem", "Solution", "Outcome"].map(t => `CMD: Gen Slide. TEXT: ${t}. STYLE: Flat Vector.`);
        }
     } else {
-       // Visual Formats
-       const enhancers = getVisualEnhancers(styleContext, format);
-       const basePrompt = `
-         Context: 4-Slide Visuals for ${project.productName}. Style: ${styleContext}.
-         ${countryContext}
-         Return JSON Array of 4 distinct scene descriptions.
-       `;
+       // --- VISUAL CAROUSELS ---
+       
+       let basePrompt = "";
+       
+       // NEW LOGIC FOR REAL STORY UGC
+       if (format === CreativeFormat.CAROUSEL_REAL_STORY) {
+           const enhancers = getVisualEnhancers("candid", format);
+           basePrompt = `
+             Context: A 4-slide Instagram Carousel telling a PERSONAL STORY about using ${project.productName}.
+             Visual Style: ${visualStyle}
+             Style: ${enhancers}. Authentic User Generated Content (UGC), Smartphone Photography.
+             Target Country/Demographic: ${project.targetCountry || "Global"} Native.
+             
+             Task: Describe 4 sequential photos that form a narrative.
+             Slide 1: The Struggle/Hook (Selfie showing emotion/problem or tired face). Text Overlay: "${angleHeadline}".
+             Slide 2: The Discovery (Holding the product in a messy/real room).
+             Slide 3: The Process (Applying/Using the product, close up texture or action shot).
+             Slide 4: The Result (Glowing/Happy After shot).
+             
+             Return JSON Array of 4 string descriptions.
+           `;
+       } else {
+           // Standard Visual Logic
+           basePrompt = `
+             Context: 4-Slide Visuals for ${project.productName}. 
+             Visual Style: ${visualStyle}.
+             Scene Base: ${visualScene}.
+             ${countryContext}
+             Return JSON Array of 4 distinct scene descriptions.
+           `;
+       }
        
        try {
             const visualResponse = await runWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
@@ -965,11 +1017,24 @@ export const generateCarouselSlides = async (
             inputTokens += visualResponse.usageMetadata?.promptTokenCount || 0;
             outputTokens += visualResponse.usageMetadata?.candidatesTokenCount || 0;
             
+            // Generate the image prompts
+            const enhancers = getVisualEnhancers("candid", format); // Ensure enhancers are available
+            const combinedTechnical = `${enhancers}, ${technicalPrompt}`;
+
             slidePrompts = visuals.map((v: string) => 
-                constructImagePrompt(project.productName, "", "Photography", v, styleContext, enhancers, !!project.productReferenceImage, project.targetCountry)
+                constructImagePrompt(
+                    project.productName, 
+                    "", // No specific headline needed for sub-slides usually, or can be added if extracted
+                    "Photography", 
+                    v, 
+                    visualStyle || "Authentic", 
+                    combinedTechnical, 
+                    !!project.productReferenceImage, 
+                    project.targetCountry
+                )
             );
        } catch (e) {
-           slidePrompts = [1,2,3,4].map(() => `CMD: Gen Photo. SUBJECT: ${project.productName}. STYLE: ${styleContext}`);
+           slidePrompts = [1,2,3,4].map(() => `CMD: Gen Photo. SUBJECT: ${project.productName}. STYLE: ${visualScene}`);
        }
     }
 

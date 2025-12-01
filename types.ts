@@ -13,6 +13,7 @@ export enum CreativeFormat {
   CAROUSEL_TESTIMONIAL = 'Carousel: Testimonial Pile',
   CAROUSEL_PANORAMA = 'Carousel: Seamless Panorama',
   CAROUSEL_PHOTO_DUMP = 'Carousel: Photo Dump / Recap',
+  CAROUSEL_REAL_STORY = 'Carousel: Real People Story (UGC)', // NEW
 
   // Previous Performers
   BIG_FONT = 'Big Font / Text Heavy',
@@ -45,19 +46,19 @@ export enum CreativeFormat {
   // New: Voyeurism & Social
   CHAT_CONVERSATION = 'Chat Bubble / WhatsApp',
   REMINDER_NOTIF = 'Lockscreen Reminder',
-  SOCIAL_COMMENT_STACK = 'Social Comment Stack', // NEW
-  HANDHELD_TWEET = 'Handheld Tweet Overlay',     // NEW
+  SOCIAL_COMMENT_STACK = 'Social Comment Stack', 
+  HANDHELD_TWEET = 'Handheld Tweet Overlay',     
 
   // New: Product Centric
   POV_HANDS = 'POV / Hands-on',
   ANNOTATED_PRODUCT = 'Annotated / Feature Breakdown',
   SEARCH_BAR = 'Search Bar UI',
-  BENEFIT_POINTERS = 'Benefit Pointers / Anatomy', // NEW
+  BENEFIT_POINTERS = 'Benefit Pointers / Anatomy', 
 
   // New: Aesthetic & Mood
   COLLAGE_SCRAPBOOK = 'Collage / Scrapbook',
   CHECKLIST_TODO = 'Checklist / To-Do',
-  STICKY_NOTE_REALISM = 'Sticky Note / Handwritten' // NEW
+  STICKY_NOTE_REALISM = 'Sticky Note / Handwritten' 
 }
 
 export enum CampaignStage {
@@ -175,8 +176,10 @@ export interface ProjectContext {
 
 // Internal Interface for the "Strategist Agent"
 export interface CreativeConcept {
-  visualScene: string; // Description for the Visualizer
-  copyAngle: string;   // Direction for the Copywriter
+  visualScene: string;   // Description for the Visualizer
+  visualStyle: string;   // NEW: Art Direction (Lighting, Vibe, Texture)
+  technicalPrompt: string; // NEW: Technical Camera Specs (Keywords)
+  copyAngle: string;     // Direction for the Copywriter
   rationale: string;
 }
 
