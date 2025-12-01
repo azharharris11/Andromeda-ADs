@@ -666,6 +666,36 @@ export const generateCreativeImage = async (
   
   let medium = "Photography";
   let sceneDescription = visualScene; // Use the Creative Director's detailed scene
+  
+  // --- FIX: FORCE TEMPLATE FOR UI FORMATS ---
+  // The Strategist Agent generates a general concept (e.g., "A phone screen").
+  // But for UI-heavy formats, we MUST use our specific templates that contain the
+  // 'angleHeadline' to ensure the text overlay appears correctly.
+  // If the format is in this list, we ignore the Strategist's general description
+  // and force the switch-case to populate the strict template.
+  const FORCE_TEMPLATE_FORMATS = [
+      CreativeFormat.STORY_QNA,
+      CreativeFormat.STORY_POLL,
+      CreativeFormat.REELS_THUMBNAIL,
+      CreativeFormat.DM_NOTIFICATION,
+      CreativeFormat.TWITTER_REPOST,
+      CreativeFormat.PHONE_NOTES,
+      CreativeFormat.GMAIL_UX,
+      CreativeFormat.CHAT_CONVERSATION,
+      CreativeFormat.REMINDER_NOTIF,
+      CreativeFormat.SEARCH_BAR,
+      CreativeFormat.BENEFIT_POINTERS,
+      CreativeFormat.SOCIAL_COMMENT_STACK,
+      CreativeFormat.STICKY_NOTE_REALISM,
+      CreativeFormat.HANDHELD_TWEET,
+      CreativeFormat.CAROUSEL_REAL_STORY, // Ensure UGC narrative uses the template structure if defined
+      CreativeFormat.UGC_MIRROR
+  ];
+
+  if (FORCE_TEMPLATE_FORMATS.includes(format)) {
+      sceneDescription = ""; // Force fallback to specific switch-case templates below
+  }
+
   let isLoFi = false;
   let isVector = false;
 
@@ -1039,7 +1069,7 @@ export const generateCarouselSlides = async (
             slidePrompts = visuals.map((v: string) => 
                 constructImagePrompt(
                     project.productName, 
-                    "", // No specific headline needed for sub-slides usually, or can be added if extracted
+                    angleHeadline, // --- FIX: Pass angleHeadline as context for text overlays ---
                     "Photography", 
                     v, 
                     visualStyle || "Authentic", 
