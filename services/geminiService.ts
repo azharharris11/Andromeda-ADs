@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { CreativeFormat, ProjectContext, AdCopy, FunnelStage, CreativeConcept, GenResult, MarketAwareness, CopyFramework } from "../types";
 
@@ -38,7 +37,6 @@ const runWithRetry = async <T>(operation: () => Promise<T>, retries = 3, initial
 // Helper: Smart Visual Enhancer Merging
 const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
     // FORMAT RULES (The "Chassis")
-    // We define the non-negotiable base texture/quality for each format group.
     
     // 1. INSTAGRAM NATIVE / APP UI
     if (
@@ -50,28 +48,29 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
         format === CreativeFormat.PHONE_NOTES ||
         format === CreativeFormat.GMAIL_UX ||
         format === CreativeFormat.CHAT_CONVERSATION ||
-        format === CreativeFormat.SOCIAL_COMMENT_STACK // NEW
+        format === CreativeFormat.SOCIAL_COMMENT_STACK
     ) {
-        return "style:mobile-app-screenshot, quality:high-fidelity-ui, texture:screen-pixel, vibe:authentic-social-media, perspective:flat-2d-screen-capture";
+        return "The image must look like a direct screenshot from a mobile phone. High-fidelity UI elements, crisp text rendering, flat 2D screen capture perspective.";
     }
 
-    // 2. LO-FI / RAW / REALISM
+    // 2. LO-FI / RAW / REALISM (Making it truly "Ugly")
     if (
         format === CreativeFormat.UGLY_VISUAL || 
         format === CreativeFormat.REDDIT_THREAD ||
         format === CreativeFormat.POV_HANDS ||
         format === CreativeFormat.UGC_MIRROR ||
         format === CreativeFormat.US_VS_THEM ||
-        format === CreativeFormat.HANDHELD_TWEET || // NEW
-        format === CreativeFormat.STICKY_NOTE_REALISM || // NEW
-        format === CreativeFormat.CAROUSEL_REAL_STORY // NEW (Influencer style)
+        format === CreativeFormat.HANDHELD_TWEET || 
+        format === CreativeFormat.STICKY_NOTE_REALISM || 
+        format === CreativeFormat.CAROUSEL_REAL_STORY
     ) {
-        return "texture:grainy/noise, lighting:natural-window/harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera-iphone, focus:sharp-subject-blurry-background";
+        // Crucial: Requesting "bad" quality for authenticity
+        return "Amateur photography style. Shot on an older smartphone (iPhone 6 or Android). The lighting should be harsh or dimly lit (bad flash usage). Include digital noise, slight motion blur, and JPEG compression artifacts. The background should look messy and cluttered to feel authentic and unpolished.";
     }
 
     // 3. MEME
     if (format === CreativeFormat.MEME || format === CreativeFormat.MS_PAINT) {
-        return "style:ms-paint/doodle, quality:low-res/pixelated, vibe:internet-humor";
+        return "Crude digital drawing style. Microsoft Paint aesthetic. Pixelated edges, comic sans font, low-resolution internet humor vibe.";
     }
 
     // 4. VECTOR / UI (Minimal)
@@ -85,18 +84,18 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
         format === CreativeFormat.SEARCH_BAR ||
         format === CreativeFormat.REMINDER_NOTIF
     ) {
-        return "style:flat-vector/minimal-ui, shading:none, depth:2d, color:solid-hex-codes";
+        return "Flat vector illustration style. Corporate Memphis or Minimalist UI design. No shading, solid hex colors, clean lines, 2D depth.";
     }
 
     // 5. HIGH END / CINEMATIC / INFO-PRODUCT
     if (
-        format === CreativeFormat.BENEFIT_POINTERS // NEW
+        format === CreativeFormat.BENEFIT_POINTERS
     ) {
-        return "style:high-end-product-photography, lighting:studio-softbox, quality:8k, overlay:clean-white-graphics";
+        return "High-end commercial product photography. Studio softbox lighting, 8k resolution, incredibly sharp focus on the product, clean background.";
     }
 
     // Default High End
-    return `${style}, quality:8k/masterpiece/sharp-focus`;
+    return `${style}, award-winning photography, 8k resolution, sharp focus, masterpiece composition.`;
 };
 
 // --- Strategic Generation ---
@@ -155,15 +154,19 @@ export const analyzeImageContext = async (base64Image: string): Promise<ProjectC
 
     const prompt = `
       Role: Expert Product Analyst & Reverse Engineer.
-      Task: Look at this image (it could be a product shot or an existing ad).
-      1. Identify the product being sold.
-      2. Deduce its core value proposition.
+      Task: Look at this image (product shot or ad).
+      
+      CRITICAL INSTRUCTION: READ ALL TEXT visible on the product packaging accurately (OCR). 
+      Use the text on the box/bottle/label to determine the exact Product Name and Key Benefits.
+
+      1. Identify the product name from the packaging.
+      2. Deduce its core value proposition based on packaging text and visual cues.
       3. Profiling who this product is for.
       4. Detect the language or cultural context if visible.
 
       Output strict JSON:
       {
-        "productName": "Name of product (guess if not visible)",
+        "productName": "Name of product found on packaging",
         "productDescription": "Persuasive summary of what it does and the benefit shown.",
         "targetAudience": "Demographic/Psychographic profile based on the visual aesthetic.",
         "targetCountry": "Guessed target country based on text/models (e.g. Indonesia, USA, Global)"
@@ -445,9 +448,10 @@ export const checkAdCompliance = async (copy: AdCopy): Promise<string> => {
     }
 }
 
+// UPDATED: Now accepts full Persona Metadata (Any object) instead of just name
 export const generateAdCopy = async (
     project: ProjectContext, 
-    personaName: string, 
+    persona: any, // Accepts the full persona object
     concept: CreativeConcept
 ): Promise<GenResult<AdCopy>> => {
     
@@ -458,6 +462,12 @@ export const generateAdCopy = async (
         ? `LANGUAGE RULE: Output STRICTLY in the native language of ${project.targetCountry}. Use local idioms/currency.` 
         : "Language: English (US).";
     
+    // EXTRACT DEEP PSYCHOLOGY
+    const personaName = persona.name || "User";
+    const deepFear = persona.deepFear ? `DEEP FEAR to Trigger: "${persona.deepFear}"` : "";
+    const secretDesire = persona.secretDesire ? `SECRET DESIRE to Fulfill: "${persona.secretDesire}"` : "";
+    const profile = persona.profile ? `Persona Profile: ${persona.profile}` : "";
+
     // FRAMEWORK INSTRUCTION
     let frameworkInstruction = "";
     switch (project.copyFramework) {
@@ -483,8 +493,14 @@ export const generateAdCopy = async (
     const prompt = `
       Role: Expert Direct Response Copywriter.
       Product: ${project.productName}. 
-      Target: ${personaName}. 
-      Direction: ${concept.copyAngle}.
+      
+      TARGET PERSONA ANALYSIS:
+      Name: ${personaName}
+      ${profile}
+      ${deepFear}
+      ${secretDesire}
+
+      Creative Direction: ${concept.copyAngle}.
       Visual Context: The image will show ${concept.visualScene}.
       
       ${voiceInstruction}
@@ -497,6 +513,7 @@ export const generateAdCopy = async (
       - Match the visual context.
       - Keep it compliant (no prohibited claims).
       - If an Offer exists, End with it + CTA.
+      - SPEAK TO THEIR FEARS AND DESIRES. Do not just describe the product.
 
       Return JSON: { "primaryText": "...", "headline": "...", "cta": "..." }
     `;
@@ -601,7 +618,7 @@ const callImageGen = async (prompt: string, aspectRatio: string = "1:1", referen
       }
 }
 
-// Helper to construct efficient prompts
+// Helper to construct efficient prompts using NATURAL LANGUAGE
 const constructImagePrompt = (
     subject: string, 
     context: string, 
@@ -612,27 +629,26 @@ const constructImagePrompt = (
     hasReferenceImage: boolean = false,
     targetCountry: string = ""
 ) => {
-    // Token-Efficient Prompt Structure
-    let prompt = `
-    CMD: Generate Image.
-    SUBJECT: ${subject}
-    CONTEXT: ${context}
-    MEDIUM: ${medium} (Influenced by: ${visualStyle})
-    SCENE: ${scene}
-    VISUAL STYLE: ${visualStyle}
-    TECH SPECS: ${technicalTags}
-    RULES: Authentic look. If UI is requested, ensure icons and text layouts look native (like a screenshot).
-    `;
+    // NATURAL LANGUAGE NARRATIVE BUILDER
+    // Replaces rigid CMD: syntax with flowing description for better results.
+
+    let narrative = `Create a ${medium.toLowerCase()} image. `;
+    narrative += `The scene features ${subject} ${context ? `in a context of ${context}` : ''}. `;
+    narrative += `${scene} `;
+    narrative += `The overall visual style is ${visualStyle}. `;
     
     if (targetCountry) {
-        prompt += ` DEMOGRAPHIC: Models/People MUST appear to be native to ${targetCountry} (Ethnicity/Clothing/Environment).`;
+        narrative += `The people and environment in the image must authentically reflect the culture and demographics of ${targetCountry}. `;
     }
 
     if (hasReferenceImage) {
-        prompt += " INSTRUCTION: Use the provided product image as the visual reference for the SUBJECT. Integrate it naturally into the scene.";
+        narrative += `Use the provided product image as the strict visual reference for the subject, integrating it naturally into this scene. `;
     }
 
-    return prompt;
+    narrative += `\n\nTechnical details and quality constraints: ${technicalTags}`;
+    narrative += `\nIMPORTANT: Ensure the image looks authentic to the requested medium (e.g., if it's a screenshot, it must have UI; if it's an amateur photo, it must look amateur).`;
+
+    return narrative;
 };
 
 export const generateCreativeImage = async (
@@ -659,33 +675,33 @@ export const generateCreativeImage = async (
     
     // NEW: The "Influencer Q&A" Look
     case CreativeFormat.STORY_QNA:
-        medium = "SMARTPHONE SCREENSHOT (INSTAGRAM STORY OVERLAY)";
+        medium = "SMARTPHONE SCREENSHOT (Instagram Story Overlay)";
         isLoFi = true;
         if (!sceneDescription) {
             sceneDescription = `
-            Visual is a vertical phone screenshot of an Instagram Story.
-            BACKGROUND LAYER: A high-quality, authentic photo of ${project.productName} being held in a hand or placed on a bathroom counter. Good lighting, depth of field.
-            UI LAYER (MUST INCLUDE): 
-            1. UPPER CENTER: A white 'Ask Me Anything' Question Box sticker. Header is black saying 'Ask Me Anything'. The question text inside says: 'Spill the tea on ${angleHeadline} ☕'.
-            2. ADDED ELEMENTS: Hand-drawn style arrow pointing from the question box to the product.
-            3. TEXT BUBBLES: Floating text bubbles (Green or Pink background) with testimonials like "Magic potion!" or "Obsessed".
-            4. BOTTOM: 'Send message' pill-shaped text field.
+            The image is a vertical phone screenshot of an Instagram Story.
+            The background layer is a high-quality, authentic photo of ${project.productName} being held in a hand or placed on a bathroom counter with good lighting.
+            There is a UI overlay on top. 
+            In the upper center, there is a white 'Ask Me Anything' Question Box sticker. The header is black saying 'Ask Me Anything'. The question text inside says: 'Spill the tea on ${angleHeadline} ☕'.
+            There is a hand-drawn style arrow pointing from the question box to the product.
+            Floating text bubbles (Green or Pink background) contain testimonials like "Magic potion!" or "Obsessed".
+            At the bottom, there is a 'Send message' pill-shaped text field.
             `;
         }
         break;
 
     case CreativeFormat.STORY_POLL:
-        medium = "SMARTPHONE SCREENSHOT (INSTAGRAM STORY)";
+        medium = "SMARTPHONE SCREENSHOT (Instagram Story)";
         isLoFi = true; 
         if (!sceneDescription) {
             sceneDescription = `
-            Visual is a vertical phone screenshot of an Instagram Story. 
-            BACKGROUND: Authentic photo/video of ${project.productName} in a lifestyle setting.
-            UI OVERLAY: 
-            1. Top: Thin white progress bar dashes + Profile picture & name '${personaName}' in top left + 'X' icon top right.
-            2. Center: A standard Instagram interactive POLL STICKER. Question: '${angleHeadline}?'. Options: 'Yes / Definitely'.
-            3. Bottom: 'Send message' pill-shaped text field + Heart icon.
-            Perspective: Flat 2D screen capture.
+            The image is a vertical phone screenshot of an Instagram Story. 
+            The background shows an authentic photo or video frame of ${project.productName} in a lifestyle setting.
+            The UI overlay includes:
+            1. Thin white progress bar dashes at the top, a profile picture & name '${personaName}' in top left, and an 'X' icon top right.
+            2. In the center, a standard Instagram interactive POLL STICKER with the question: '${angleHeadline}?' and options 'Yes / Definitely'.
+            3. At the bottom, a 'Send message' pill-shaped text field and a Heart icon.
+            The perspective is a flat 2D screen capture.
             `;
         }
         break;
@@ -694,128 +710,127 @@ export const generateCreativeImage = async (
         medium = "INSTAGRAM REELS INTERFACE";
         if (!sceneDescription) {
             sceneDescription = `
-            Visual is a vertical phone screenshot of an Instagram Reel.
-            CONTENT: Engaging video frame of ${project.productName}. 
-            UI OVERLAY:
+            The image is a vertical phone screenshot of an Instagram Reel interface.
+            The content is an engaging video frame of ${project.productName}. 
+            The UI overlay includes:
             1. Right Side column icons (from top to bottom): Heart (Like), Comment Bubble, Paper Plane (Share), Three dots.
             2. Bottom Left: Profile text '${personaName}' and caption text '${angleHeadline}' overlaid on the video.
             3. Very Bottom: Music track ticker icon.
-            Vibe: Viral, high energy.
+            The vibe is viral and high energy.
             `;
         }
         break;
 
     case CreativeFormat.DM_NOTIFICATION:
-        medium = "IPHONE LOCKSCREEN NOTIFICATION";
+        medium = "iPhone Lockscreen Notification";
         isVector = true;
         sceneDescription = `
-        Realistic iPhone Lockscreen.
-        BACKGROUND: Blurred depth-of-field lifestyle wallpaper (warm cozy vibe).
-        UI ELEMENT: A distinct 'Instagram' push notification banner in the center.
-        ICON: Instagram App Icon.
-        TITLE: 'Instagram'.
-        MESSAGE: 'Direct Message from ${project.productName}: ${angleHeadline}'.
-        Time: 09:41 at the top.
+        A realistic iPhone Lockscreen view.
+        The background is a blurred depth-of-field lifestyle wallpaper (warm cozy vibe).
+        There is a distinct 'Instagram' push notification banner in the center.
+        It shows the Instagram App Icon and title 'Instagram'.
+        The message reads: 'Direct Message from ${project.productName}: ${angleHeadline}'.
+        The time 09:41 is displayed at the top.
         `;
         break;
 
     case CreativeFormat.UGC_MIRROR:
-        medium = "MIRROR SELFIE (INSTAGRAM STORY STYLE)";
+        medium = "Mirror Selfie (Instagram Story Style)";
         isLoFi = true;
         if (!sceneDescription) {
             sceneDescription = `
-            Gen-Z style bathroom mirror selfie taken with a phone covering the face.
-            SUBJECT: Person holding ${project.productName} visibly.
-            STYLE: Flash photography, slight grain, authentic aesthetic.
-            UI OVERLAY: Instagram Story text overlay typed in 'Neon' or 'Modern' font saying: "${angleHeadline}".
-            Drawing tool doodles (scribbles) around the product.
+            A Gen-Z style bathroom mirror selfie taken with a phone covering the face.
+            The subject is visibly holding ${project.productName}.
+            The style uses flash photography with slight grain for an authentic aesthetic.
+            There is an Instagram Story text overlay typed in 'Neon' or 'Modern' font saying: "${angleHeadline}".
+            There are some drawing tool doodles (scribbles) around the product.
             `;
         }
         break;
 
     case CreativeFormat.TWITTER_REPOST:
-        medium = "FLAT VECTOR UI SCREENSHOT";
+        medium = "Social Media Screenshot";
         isVector = true;
-        sceneDescription = `Twitter post. Profile: circular pic. User: @${personaName.replace(/\s/g, '')}. Content: '${angleHeadline}'. UI: Reply/Like icons.`;
+        sceneDescription = `A screenshot of a Twitter/X post. It shows a circular profile pic for user @${personaName.replace(/\s/g, '')}. The content text says: '${angleHeadline}'. Standard UI icons for Reply, Retweet, and Like are visible below the text.`;
         break;
 
     case CreativeFormat.GMAIL_UX:
-        medium = "FLAT VECTOR EMAIL UI";
+        medium = "Email Interface";
         isVector = true;
-        sceneDescription = `Gmail inbox view. Subject: '${angleHeadline}'. From: ${project.productName}. UI: Standard white/gray interface.`;
+        sceneDescription = `A view of a Gmail inbox on a desktop or mobile. The subject line reads: '${angleHeadline}'. The sender is ${project.productName}. The interface is standard white and gray.`;
         break;
 
     case CreativeFormat.PHONE_NOTES:
-        medium = "FLAT 2D PHONE NOTES APP";
+        medium = "Phone Notes App";
         isVector = true;
-        sceneDescription = `Apple Notes interface. Background: Yellow texture. Text: '${angleHeadline}'. UI: Back arrow.`;
+        sceneDescription = `The Apple Notes app interface. The background has a subtle paper texture. The text reads: '${angleHeadline}'. There is a back arrow in the top left.`;
         break;
     
     case CreativeFormat.REMINDER_NOTIF:
-        medium = "FLAT LOCKSCREEN UI";
+        medium = "Lockscreen Notification";
         isVector = true;
-        sceneDescription = `Phone lockscreen. Blurred wallpaper. Notification banner: 'Reminder: ${angleHeadline}'.`;
+        sceneDescription = `A phone lockscreen with a blurred wallpaper background. A standard notification banner is visible saying: 'Reminder: ${angleHeadline}'.`;
         break;
     
     case CreativeFormat.CHAT_CONVERSATION:
-        medium = "FLAT MESSAGING UI";
+        medium = "Messaging App Interface";
         isVector = true;
-        sceneDescription = `Chat screen. Bubbles: 'I need help...' (Gray) vs '${angleHeadline}' (Blue).`;
+        sceneDescription = `A chat screen interface (like iMessage or WhatsApp). There are message bubbles. A gray bubble says 'I need help...'. A blue response bubble says '${angleHeadline}'.`;
         break;
 
     case CreativeFormat.SEARCH_BAR:
-        medium = "MINIMAL WEB UI";
+        medium = "Web Search Interface";
         isVector = true;
-        sceneDescription = `Google search bar. Text: '${angleHeadline}'. Dropdown suggestions. White background.`;
+        sceneDescription = `A minimalist Google search bar on a white background. The text typed in the bar is '${angleHeadline}'. There is a dropdown of search suggestions below it.`;
         break;
 
     // --- NEW DIRECT RESPONSE FORMATS ---
 
     case CreativeFormat.BENEFIT_POINTERS:
-        medium = "PRODUCT PHOTOGRAPHY WITH INFOGRAPHIC ELEMENTS";
+        medium = "Product Photography with Infographic elements";
         if (!sceneDescription) {
             sceneDescription = `
-            High-end studio shot of ${project.productName} centered.
-            OVERLAY: Thin white lines pointing to 3 distinct features of the product.
-            LABELS: At the end of each line, a small white floating bubble containing short text (e.g., 'Hydrating', 'Organic').
-            VIBE: Clinical, Educational, Premium.
+            A high-end studio shot of ${project.productName} centered in the frame.
+            There are thin white lines overlaying the image, pointing to 3 distinct features of the product.
+            At the end of each line, there is a small white floating bubble containing short text (e.g., 'Hydrating', 'Organic').
+            The vibe is clinical, educational, and premium.
             `;
         }
         break;
 
     case CreativeFormat.SOCIAL_COMMENT_STACK:
-        medium = "COMPOSITE SOCIAL MEDIA IMAGE";
+        medium = "Composite Social Media Image";
         if (!sceneDescription) {
             sceneDescription = `
-            BACKGROUND: Authentic UGC lifestyle photo of ${project.productName} in use.
-            OVERLAY: 3 or 4 distinct Social Media Comment bubbles (Instagram or TikTok style) stacked vertically in the center, partially covering the product.
-            CONTENT: Comments should say things like 'I need this!', 'Life saver 😍', 'Best purchase ever'.
-            VIBE: Viral sensation, overwhelming social proof.
+            The background is an authentic UGC lifestyle photo of ${project.productName} in use.
+            The foreground features 3 or 4 distinct Social Media Comment bubbles (Instagram or TikTok style) stacked vertically in the center, partially covering the product.
+            The comments contain text like 'I need this!', 'Life saver 😍', 'Best purchase ever'.
+            The vibe suggests a viral sensation and overwhelming social proof.
             `;
         }
         break;
 
     case CreativeFormat.STICKY_NOTE_REALISM:
-        medium = "REALISTIC PHOTO";
+        medium = "Realistic Photography";
         isLoFi = true;
         if (!sceneDescription) {
             sceneDescription = `
-            A yellow Post-it note is stuck physically onto the packaging of ${project.productName} or on a mirror next to it.
-            TEXT: Handwritten black marker text on the note saying: "${angleHeadline}".
-            STYLE: Authentic, messy, real life texture.
+            A real yellow Post-it note stuck physically onto the packaging of ${project.productName} or on a bathroom mirror next to it.
+            There is handwritten black marker text on the note saying: "${angleHeadline}".
+            The style is authentic, messy, and has real-life texture (not a digital graphic).
             `;
         }
         break;
 
     case CreativeFormat.HANDHELD_TWEET:
-        medium = "POV PHOTOGRAPHY WITH UI OVERLAY";
+        medium = "POV Photography with UI Overlay";
         isLoFi = true;
         if (!sceneDescription) {
             sceneDescription = `
-            First-person POV shot of a hand holding ${project.productName} in a bathroom or bedroom.
-            OVERLAY: A sharp, crisp Twitter/X post card floating in the center.
-            TWEET CONTENT: User avatar + Text saying: "${angleHeadline}".
-            VIBE: Storytelling, candid, relatable.
+            A first-person POV shot of a hand holding ${project.productName} in a bathroom or bedroom setting.
+            There is a sharp, crisp Twitter/X post card overlay floating in the center of the image.
+            The tweet content shows a user avatar and text saying: "${angleHeadline}".
+            The vibe is storytelling, candid, and relatable.
             `;
         }
         break;
@@ -824,22 +839,22 @@ export const generateCreativeImage = async (
     case CreativeFormat.UGLY_VISUAL:
     case CreativeFormat.REDDIT_THREAD:
     case CreativeFormat.US_VS_THEM:
-        medium = "AMATEUR PHONE PHOTO";
+        medium = "Amateur Smartphone Photography";
         isLoFi = true;
-        if (!sceneDescription) sceneDescription = `Messy candid shot of ${project.productName} on cluttered table. Harsh flash. Authentic UGC.`;
+        if (!sceneDescription) sceneDescription = `A messy, candid shot of ${project.productName} sitting on a cluttered table or bed. The lighting looks like harsh camera flash. It looks like an authentic UGC photo posted on a forum.`;
         break;
 
     case CreativeFormat.POV_HANDS:
-        medium = "FIRST PERSON POV PHOTO";
+        medium = "First-Person POV Photo";
         isLoFi = true;
-        if (!sceneDescription) sceneDescription = `POV looking down at hands holding ${project.productName}. Background: messy room. Lighting: Flash.`;
+        if (!sceneDescription) sceneDescription = `A POV angle looking down at hands holding ${project.productName}. The background is a slightly messy room. The lighting mimics a smartphone flash.`;
         break;
 
     case CreativeFormat.MEME:
     case CreativeFormat.MS_PAINT:
-        medium = "CRUDE DIGITAL DRAWING";
+        medium = "Crude Digital Drawing";
         isLoFi = true;
-        sceneDescription = `Poorly drawn MS Paint doodle about '${angleHeadline}'. Stick figures. Comic sans. Internet humor.`;
+        sceneDescription = `A poorly drawn MS Paint doodle illustrating '${angleHeadline}'. It uses stick figures and comic sans font. It captures a low-resolution internet humor vibe.`;
         break;
 
     // --- HYBRID ---
@@ -854,20 +869,20 @@ export const generateCreativeImage = async (
     case CreativeFormat.CHECKLIST_TODO:
     case CreativeFormat.WHITEBOARD:
     case CreativeFormat.CARTOON:
-        medium = "FLAT VECTOR ILLUSTRATION";
+        medium = "Flat Vector Illustration";
         isVector = true;
-        if (!sceneDescription) sceneDescription = `Minimalist infographic for '${angleHeadline}'. Style: Corporate Memphis / Flat Design. Solid background.`;
+        if (!sceneDescription) sceneDescription = `A minimalist infographic representing '${angleHeadline}'. The style is Corporate Memphis or Flat Design with a solid background.`;
         break;
         
     case CreativeFormat.BIG_FONT:
-        medium = "TYPOGRAPHY POSTER";
+        medium = "Typography Poster";
         isVector = true;
-        sceneDescription = `Text '${angleHeadline}' is hero. Font: Massive bold sans-serif. High contrast colors.`;
+        sceneDescription = `The text '${angleHeadline}' is the hero of the image. It uses a massive, bold sans-serif font with high contrast colors.`;
         break;
 
     case CreativeFormat.COLLAGE_SCRAPBOOK:
-        medium = "MIXED MEDIA COLLAGE";
-        if (!sceneDescription) sceneDescription = `Chaotic collage of ${project.productName}, ripped paper, tape, notes. Punk zine style.`;
+        medium = "Mixed Media Collage";
+        if (!sceneDescription) sceneDescription = `A chaotic collage featuring ${project.productName}, ripped paper textures, tape, and handwritten notes. It has a punk zine style.`;
         break;
 
     // --- HIGH END ---
@@ -877,28 +892,28 @@ export const generateCreativeImage = async (
     case CreativeFormat.CAROUSEL_PHOTO_DUMP:
     case CreativeFormat.ANNOTATED_PRODUCT:
     case CreativeFormat.BILLBOARD:
-        medium = "HIGH END COMMERCIAL PHOTO";
-        if (!sceneDescription) sceneDescription = `Award-winning product shot of ${project.productName}. Composition: Minimal.`;
+        medium = "High-End Commercial Photography";
+        if (!sceneDescription) sceneDescription = `An award-winning product shot of ${project.productName}. The composition is minimal and elegant.`;
         break;
 
     // --- REAL PEOPLE STORY (NEW) ---
     case CreativeFormat.CAROUSEL_REAL_STORY:
-        medium = "CANDID SMARTPHONE PHOTOGRAPHY";
+        medium = "Candid Smartphone Photography";
         isLoFi = true; // Essential for the real look
-        if (!sceneDescription) sceneDescription = `A real person holding ${project.productName} in a candid selfie style. Background is a normal bedroom or living room.`;
+        if (!sceneDescription) sceneDescription = `A real person holding ${project.productName} in a candid selfie style. The background is a normal bedroom or living room, not a studio.`;
         break;
 
     default:
-        medium = "PRODUCT PHOTO";
-        if (!sceneDescription) sceneDescription = `Standard commercial shot of ${project.productName}.`;
+        medium = "Product Photography";
+        if (!sceneDescription) sceneDescription = `A standard commercial shot of ${project.productName}.`;
         break;
   }
 
   // --- STYLE OVERRIDE LOGIC ---
   let activeStyle = "";
-  if (isLoFi) activeStyle = "Raw, amateur, authentic";
-  else if (isVector) activeStyle = "Flat, vector, minimal";
-  else activeStyle = "Professional, sharp";
+  if (isLoFi) activeStyle = "Raw, amateur, authentic, unpolished";
+  else if (isVector) activeStyle = "Flat, vector, minimal, graphic";
+  else activeStyle = "Professional, sharp, studio quality";
 
   const technicalBoosters = getVisualEnhancers(activeStyle, format);
   
@@ -964,11 +979,11 @@ export const generateCarouselSlides = async (
             const enhancers = getVisualEnhancers("flat", format);
 
             slidePrompts = texts.map((t: string) => 
-                `CMD: Gen Flat Vector Slide. CENTER TEXT: "${t}". STYLE: Minimal geometric. SPECS: ${enhancers}, ${technicalPrompt}`
+                `Create a flat vector slide. The center text is "${t}". The style is minimal geometric. Technical specs: ${enhancers}, ${technicalPrompt}`
             );
        } catch (e) {
             console.error("Educational Carousel Text Gen Failed", e);
-            slidePrompts = ["Hook", "Problem", "Solution", "Outcome"].map(t => `CMD: Gen Slide. TEXT: ${t}. STYLE: Flat Vector.`);
+            slidePrompts = ["Hook", "Problem", "Solution", "Outcome"].map(t => `Create a flat vector slide with text: ${t}.`);
        }
     } else {
        // --- VISUAL CAROUSELS ---
@@ -981,7 +996,7 @@ export const generateCarouselSlides = async (
            basePrompt = `
              Context: A 4-slide Instagram Carousel telling a PERSONAL STORY about using ${project.productName}.
              Visual Style: ${visualStyle}
-             Style: ${enhancers}. Authentic User Generated Content (UGC), Smartphone Photography.
+             Style description: ${enhancers}. Authentic User Generated Content (UGC), Smartphone Photography.
              Target Country/Demographic: ${project.targetCountry || "Global"} Native.
              
              Task: Describe 4 sequential photos that form a narrative.
@@ -1034,7 +1049,7 @@ export const generateCarouselSlides = async (
                 )
             );
        } catch (e) {
-           slidePrompts = [1,2,3,4].map(() => `CMD: Gen Photo. SUBJECT: ${project.productName}. STYLE: ${visualScene}`);
+           slidePrompts = [1,2,3,4].map(() => `Create a photo of ${project.productName}. Style: ${visualScene}`);
        }
     }
 

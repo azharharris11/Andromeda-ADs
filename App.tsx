@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef } from 'react';
 import { HashRouter } from 'react-router-dom';
 import { Layers, Settings, Activity, Microscope, ShieldCheck, X, RefreshCw, Globe, Sparkles, Image as ImageIcon, Upload, Package, Megaphone, Filter, Target, FileText, MapPin, Info, Smartphone } from 'lucide-react';
@@ -333,6 +332,10 @@ const App = () => {
 
         try {
             const personaName = parentNode.meta?.personaName || "User";
+            // UPDATED: Pass full persona metadata for psychological context
+            // parentNode.meta holds the persona object (name, profile, deepFear, etc) if available
+            const personaMeta = parentNode.meta || { name: personaName };
+
             const angle = parentNode.title;
             const fmt = node.format as CreativeFormat;
             
@@ -350,7 +353,8 @@ const App = () => {
 
             // 2. COPYWRITER AGENT (Uses Concept)
             updateNode(node.id, { description: "Copywriter: Drafting..." });
-            const copyResult = await generateAdCopy(project, personaName, concept);
+            // UPDATED: Calling with full persona object
+            const copyResult = await generateAdCopy(project, personaMeta, concept);
             accumulatedInput += copyResult.inputTokens;
             accumulatedOutput += copyResult.outputTokens;
             const adCopy = copyResult.data;
@@ -368,7 +372,7 @@ const App = () => {
                 angle, 
                 fmt, 
                 concept.visualScene, 
-                concept.visualStyle,
+                concept.visualStyle, 
                 concept.technicalPrompt,
                 "1:1"
             );
