@@ -1,18 +1,25 @@
 
+
 import React, { useState, useRef } from 'react';
 import { HashRouter } from 'react-router-dom';
-import { Layers, Settings, Activity, Microscope, ShieldCheck, X, RefreshCw, Globe, Sparkles, Image as ImageIcon, Upload, Package } from 'lucide-react';
+import { Layers, Settings, Activity, Microscope, ShieldCheck, X, RefreshCw, Globe, Sparkles, Image as ImageIcon, Upload, Package, Megaphone, Filter, Target, FileText, MapPin, Info, Smartphone } from 'lucide-react';
 import Canvas, { CanvasHandle } from './components/Canvas';
 import Node from './components/Node';
 import Inspector from './components/Inspector';
-import { NodeType, NodeData, Edge, ProjectContext, CreativeFormat, CampaignStage, ViewMode } from './types';
-import { generatePersonas, generateAngles, generateCreativeImage, generateAdCopy, generateCarouselSlides, generateVisualStyle, analyzeLandingPageContext, analyzeImageContext } from './services/geminiService';
+import { NodeType, NodeData, Edge, ProjectContext, CreativeFormat, CampaignStage, ViewMode, FunnelStage, MarketAwareness, CopyFramework } from './types';
+import { generatePersonas, generateAngles, generateCreativeImage, generateAdCopy, generateCarouselSlides, generateCreativeConcept, checkAdCompliance, analyzeLandingPageContext, analyzeImageContext } from './services/geminiService';
 import { scrapeLandingPage } from './services/firecrawlService';
 
 const INITIAL_PROJECT: ProjectContext = {
   productName: "Zenith Focus Gummies",
   productDescription: "Nootropic gummies for focus and memory without the caffeine crash.",
-  targetAudience: "Students, Programmers, and Creatives."
+  targetAudience: "Students, Programmers, and Creatives.",
+  targetCountry: "USA",
+  brandVoice: "Witty, Smart, but Approachable",
+  funnelStage: FunnelStage.TOF,
+  marketAwareness: MarketAwareness.PROBLEM_AWARE,
+  copyFramework: CopyFramework.PAS,
+  offer: "Buy 2 Get 1 Free"
 };
 
 const FORMAT_GROUPS: Record<string, CreativeFormat[]> = {
@@ -109,6 +116,31 @@ const App = () => {
   const addEdge = (source: string, target: string) => { setEdges(prev => [...prev, { id: `${source}-${target}`, source, target }]); };
   const updateNode = (id: string, updates: Partial<NodeData>) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, ...updates } : n)); };
 
+  // --- LOGIC: MARKET AWARENESS -> FUNNEL STAGE ---
+  const handleAwarenessChange = (awareness: MarketAwareness) => {
+    let derivedFunnelStage = FunnelStage.TOF;
+
+    switch (awareness) {
+      case MarketAwareness.UNAWARE:
+      case MarketAwareness.PROBLEM_AWARE:
+        derivedFunnelStage = FunnelStage.TOF;
+        break;
+      case MarketAwareness.SOLUTION_AWARE:
+        derivedFunnelStage = FunnelStage.MOF;
+        break;
+      case MarketAwareness.PRODUCT_AWARE:
+      case MarketAwareness.MOST_AWARE:
+        derivedFunnelStage = FunnelStage.BOF;
+        break;
+    }
+
+    setProject(prev => ({
+      ...prev,
+      marketAwareness: awareness,
+      funnelStage: derivedFunnelStage
+    }));
+  };
+
   // --- FIRECRAWL ANALYSIS ---
   const handleAnalyzeUrl = async () => {
       if (!landingPageUrl) return;
@@ -132,6 +164,7 @@ const App = () => {
               productName: context.productName,
               productDescription: context.productDescription,
               targetAudience: context.targetAudience,
+              targetCountry: context.targetCountry || project.targetCountry,
               landingPageUrl: landingPageUrl
           });
 
@@ -166,7 +199,8 @@ const App = () => {
                   ...project, // Keep url if exists
                   productName: context.productName,
                   productDescription: context.productDescription,
-                  targetAudience: context.targetAudience
+                  targetAudience: context.targetAudience,
+                  targetCountry: context.targetCountry || project.targetCountry
               });
 
                // Update Root Node
@@ -275,7 +309,8 @@ const App = () => {
 
     // GENERATION PROCESS
     for (const node of newNodes) {
-        if (newNodes.indexOf(node) > 0) await new Promise(resolve => setTimeout(resolve, 1500));
+        // Stagger execution slightly to prevent immediate rate limits, though we have retry logic
+        if (newNodes.indexOf(node) > 0) await new Promise(resolve => setTimeout(resolve, 800));
 
         try {
             const personaName = parentNode.meta?.personaName || "User";
@@ -286,49 +321,45 @@ const App = () => {
             let accumulatedOutput = 0;
             let imageCount = 0;
 
+            // 1. STRATEGIST AGENT (The Bridge)
+            // Generate a cohesive concept first.
+            updateNode(node.id, { description: "Strategist: Developing concept..." });
+            const conceptResult = await generateCreativeConcept(project, personaName, angle, fmt);
+            accumulatedInput += conceptResult.inputTokens;
+            accumulatedOutput += conceptResult.outputTokens;
+            const concept = conceptResult.data;
+
+            // 2. COPYWRITER AGENT (Uses Concept)
+            updateNode(node.id, { description: "Copywriter: Drafting..." });
+            const copyResult = await generateAdCopy(project, personaName, concept);
+            accumulatedInput += copyResult.inputTokens;
+            accumulatedOutput += copyResult.outputTokens;
+            const adCopy = copyResult.data;
+
+            // 3. COMPLIANCE CHECK (Safety Layer)
+            const complianceStatus = await checkAdCompliance(adCopy);
+            adCopy.complianceNotes = complianceStatus;
+
+            // 4. VISUALIZER AGENT (Uses Concept + Format)
+            updateNode(node.id, { description: "Visualizer: Rendering..." });
+            const imgResult = await generateCreativeImage(project, personaName, angle, fmt, concept.visualScene, "1:1");
+            accumulatedInput += imgResult.inputTokens;
+            accumulatedOutput += imgResult.outputTokens;
+            const imageUrl = imgResult.data;
+            if (imageUrl) imageCount++;
+
+            // 5. CAROUSEL HANDLER (Optional)
+            let carouselImages: string[] = [];
             const isCarousel = (
                 fmt === CreativeFormat.CAROUSEL_EDUCATIONAL ||
                 fmt === CreativeFormat.CAROUSEL_TESTIMONIAL ||
                 fmt === CreativeFormat.CAROUSEL_PANORAMA ||
                 fmt === CreativeFormat.CAROUSEL_PHOTO_DUMP
             );
-
-            // 1. Creative Director: Define Style Context
-            // ONLY run "Creative Director" (Style Gen) for Carousels to ensure cohesion.
-            // For Single Images, we SKIP this and pass an empty style to avoid contamination.
-            let visualStyle = "";
             
             if (isCarousel) {
-                updateNode(node.id, { description: "Director: Setting Scene..." });
-                const styleResult = await generateVisualStyle(project, personaName, angle);
-                accumulatedInput += styleResult.inputTokens;
-                accumulatedOutput += styleResult.outputTokens;
-                visualStyle = styleResult.data;
-            } else {
-                updateNode(node.id, { description: "Format: Enforcing Medium..." });
-                // We intentionally leave visualStyle empty.
-                // geminiService.ts will now enforce the MEDIUM based purely on FORMAT.
-            }
-
-            // 2. Copywriter: Generate Text
-            updateNode(node.id, { description: "Copywriter: Drafting..." });
-            const copyResult = await generateAdCopy(project, personaName, angle);
-            accumulatedInput += copyResult.inputTokens;
-            accumulatedOutput += copyResult.outputTokens;
-            const adCopy = copyResult.data;
-
-            // 3. Visualizer: Generate Main Image
-            updateNode(node.id, { description: "Visualizer: Rendering..." });
-            const imgResult = await generateCreativeImage(project, personaName, angle, fmt, visualStyle, "1:1");
-            accumulatedInput += imgResult.inputTokens;
-            accumulatedOutput += imgResult.outputTokens;
-            const imageUrl = imgResult.data;
-            if (imageUrl) imageCount++;
-
-            // 4. Carousel Handler
-            let carouselImages: string[] = [];
-            if (isCarousel) {
-                const slidesResult = await generateCarouselSlides(project, fmt, angle, visualStyle);
+                // Pass the concept's visual style to the carousel generator for consistency
+                const slidesResult = await generateCarouselSlides(project, fmt, angle, concept.visualScene);
                 accumulatedInput += slidesResult.inputTokens;
                 accumulatedOutput += slidesResult.outputTokens;
                 carouselImages = slidesResult.data;
@@ -350,7 +381,7 @@ const App = () => {
                 inputTokens: accumulatedInput,
                 outputTokens: accumulatedOutput,
                 estimatedCost: totalCost,
-                meta: { ...node.meta, styleContext: visualStyle } // Save style context for regeneration
+                meta: { ...node.meta, styleContext: concept.visualScene } // Save style context for regeneration
             });
         } catch (e) {
             console.error("Error generating creative node", e);
@@ -379,7 +410,9 @@ const App = () => {
             const newNodeId = `persona-${Date.now()}-${index}`;
             addNode({
               id: newNodeId, type: NodeType.PERSONA, parentId: nodeId,
-              title: p.name, description: `${p.motivation}`,
+              title: p.name, 
+              // UPDATED: Use profile and motivation for richer description
+              description: `${p.profile || p.motivation}`,
               x: parentNode.x + HORIZONTAL_GAP, y: startY + (index * VERTICAL_SPACING),
               meta: p, stage: CampaignStage.TESTING,
               inputTokens: result.inputTokens / 3, // rough split
@@ -417,385 +450,434 @@ const App = () => {
             });
             addEdge(nodeId, newNodeId);
           });
-      } catch (e) { console.error("Angle gen failed", e); }
+      } catch (e) { alert("Quota exceeded."); }
       updateNode(nodeId, { isLoading: false });
     }
 
     if (action === 'generate_creatives') {
       setTargetAngleId(nodeId);
       setIsFormatModalOpen(true);
-      setSelectedFormats(new Set());
     }
 
     if (action === 'promote_creative') {
-        const originalNode = nodes.find(n => n.id === nodeId);
-        if (!originalNode) return;
-        updateNode(nodeId, { isGhost: true, stage: CampaignStage.TESTING });
-        const vaultNodeId = `vault-${nodeId}`;
-        const vaultNode: NodeData = {
-            ...originalNode,
-            id: vaultNodeId,
-            stage: CampaignStage.SCALING,
-            description: "Active in Advantage+ Scaling Campaign",
-            postId: `PID-${Math.floor(Math.random() * 1000000)}`,
-            x: 0, y: 0, 
-            isWinning: true,
-            metrics: { spend: 850, cpa: 12.5, roas: 3.2, impressions: 45000, ctr: 1.8 }
-        };
-        addNode(vaultNode);
+       // Deep Clone to move to Vault
+       const newId = `${nodeId}-vault`;
+       addNode({
+           ...parentNode,
+           id: newId,
+           stage: CampaignStage.SCALING,
+           x: 0, 
+           y: 0,
+           parentId: null // Vault items are root in their view
+       });
+       // Leave a ghost behind
+       updateNode(nodeId, { isGhost: true });
+       // Switch view automatically
+       setActiveView('VAULT');
     }
 
     if (action === 'remix_creative') {
-        const sourceNode = nodes.find(n => n.id === nodeId);
-        if (!sourceNode) return;
-        updateNode(nodeId, { isLoading: true }); // Loading on the button
-
-        // -------------------------
-        // REMIX STRATEGY
-        // 1. Copy Variation (Same Visual, New Copy)
-        // 2. Visual Variation (Same Copy, New Visual Style)
-        // 3. Format Pivot (Completely new Format)
-        // -------------------------
-
-        const personaName = sourceNode.meta?.personaName || "User";
-        const angle = sourceNode.meta?.angle || sourceNode.title; // Fallback
-        const currentFormat = sourceNode.format as CreativeFormat;
-        const currentStyle = sourceNode.meta?.styleContext || "";
-
-        // Determine a pivot format (something different)
-        const pivotOptions = [CreativeFormat.UGLY_VISUAL, CreativeFormat.TWITTER_REPOST, CreativeFormat.AESTHETIC_MINIMAL, CreativeFormat.POV_HANDS];
-        const pivotFormat = pivotOptions.find(f => f !== currentFormat) || CreativeFormat.AESTHETIC_MINIMAL;
-
-        const variations = [
-            { idSuffix: 'v-copy', label: 'Copy Remix', type: 'COPY', format: currentFormat },
-            { idSuffix: 'v-visual', label: 'Visual Refresh', type: 'VISUAL', format: currentFormat },
-            { idSuffix: 'v-format', label: 'Format Pivot', type: 'FORMAT', format: pivotFormat }
-        ];
-
-        const startX = sourceNode.x + 400;
-        const startY = sourceNode.y;
-        
-        // Create skeleton nodes first
-        const remixNodes: NodeData[] = variations.map((v, i) => ({
-            id: `remix-${sourceNode.id}-${v.idSuffix}`,
-            type: NodeType.CREATIVE,
-            parentId: sourceNode.id,
-            title: v.format,
-            description: `Remixing: ${v.label}...`,
-            format: v.format,
-            x: startX,
-            y: startY + ((i - 1) * 400),
-            stage: CampaignStage.TESTING,
-            isLoading: true,
-            meta: { personaName, angle, styleContext: currentStyle }
-        }));
-        
-        remixNodes.forEach(n => { addNode(n); addEdge(sourceNode.id, n.id); });
-
-        // Process Remixes
-        for (let i = 0; i < variations.length; i++) {
-            const v = variations[i];
-            const node = remixNodes[i];
-            
-            try {
-                let accumulatedInput = 0;
-                let accumulatedOutput = 0;
-                let imageCount = 0;
-                
-                // --- STEP 1: VISUAL STYLE ---
-                let visualStyle = currentStyle;
-                if (v.type === 'VISUAL') {
-                    // Force a new style generation for Visual Refresh
-                     const styleResult = await generateVisualStyle(project, personaName, angle);
-                     visualStyle = styleResult.data;
-                     accumulatedInput += styleResult.inputTokens; accumulatedOutput += styleResult.outputTokens;
-                }
-                
-                // --- STEP 2: COPY ---
-                let adCopy = sourceNode.adCopy;
-                if (v.type === 'COPY' || !adCopy) {
-                    const copyResult = await generateAdCopy(project, personaName, angle);
-                    adCopy = copyResult.data;
-                    accumulatedInput += copyResult.inputTokens; accumulatedOutput += copyResult.outputTokens;
-                }
-
-                // --- STEP 3: VISUALS ---
-                // For Copy Remix, ideally keep image, but API doesn't support "reuse image id" easily without persistent storage.
-                // So we regenerate with SAME parameters.
-                // For Visual Remix, we use NEW style.
-                // For Format Pivot, we use NEW format.
-                
-                const imgResult = await generateCreativeImage(project, personaName, angle, v.format, visualStyle, "1:1");
-                const imageUrl = imgResult.data;
-                if (imageUrl) imageCount++;
-                accumulatedInput += imgResult.inputTokens; accumulatedOutput += imgResult.outputTokens;
-
-                // --- COST ---
-                const totalCost = (accumulatedInput / 1e6 * 0.3) + (accumulatedOutput / 1e6 * 2.5) + (imageCount * 0.039);
-
-                updateNode(node.id, {
-                    isLoading: false,
-                    imageUrl: imageUrl || undefined,
-                    adCopy: adCopy,
-                    description: adCopy?.primaryText.slice(0, 100) + "...",
-                    inputTokens: accumulatedInput,
-                    outputTokens: accumulatedOutput,
-                    estimatedCost: totalCost,
-                    meta: { ...node.meta, styleContext: visualStyle }
-                });
-
-            } catch (e) {
-                console.error("Remix failed", e);
-                updateNode(node.id, { isLoading: false, description: "Remix Failed" });
-            }
-        }
-        
-        updateNode(nodeId, { isLoading: false });
+        updateNode(nodeId, { isLoading: true });
+        // Simulation: Reset metrics to fresh
+        setTimeout(() => {
+            updateNode(nodeId, { 
+                isLoading: false,
+                metrics: { ...parentNode.metrics!, ctr: 2.5, cpa: 15, roas: 3.2 }, // Boosted performance
+                isLosing: false,
+                isWinning: true
+            });
+        }, 2000);
     }
   };
 
-  const handleSimulatePerformance = () => {
+  const runSimulation = () => {
     setSimulating(true);
-    setTimeout(() => {
-      setNodes(prev => prev.map(n => {
-        if (n.type === NodeType.CREATIVE && !n.isLoading && n.stage === CampaignStage.TESTING && !n.isGhost) {
-          const spend = Math.floor(Math.random() * 1500) + 20;
-          let cpa = 0, roas = 0;
-          if (spend > 500) {
-             const quality = Math.random();
-             if (quality > 0.6) { roas = 2.5 + Math.random() * 3; cpa = 10 + Math.random() * 15; } 
-             else { roas = 0.5 + Math.random(); cpa = 50 + Math.random() * 50; }
-          } else { roas = Math.random() * 2; cpa = 20 + Math.random() * 30; }
-          const isWinning = spend > 400 && roas > 2.2;
-          const isLosing = spend > 300 && roas < 1.5;
-          return { ...n, metrics: { spend, cpa, roas, impressions: Math.floor(spend * 60), ctr: 0.5 + Math.random() * 2 }, isWinning, isLosing };
-        }
-        return n;
-      }));
-      setSimulating(false);
-    }, 1200);
+    
+    // Simulate metrics for all leaf nodes (Creatives) in LAB
+    const creatives = nodes.filter(n => n.type === NodeType.CREATIVE && n.stage === CampaignStage.TESTING && !n.isGhost);
+    
+    creatives.forEach(node => {
+        // Random performance logic
+        const spend = Math.floor(Math.random() * 500) + 50;
+        const cpa = Math.floor(Math.random() * 40) + 5;
+        const roas = parseFloat((Math.random() * 4).toFixed(2));
+        const ctr = parseFloat((Math.random() * 3).toFixed(2));
+        
+        updateNode(node.id, {
+            metrics: { spend, cpa, roas, impressions: spend * 100, ctr },
+            isWinning: roas > 2.5,
+            isLosing: roas < 1.0,
+            aiInsight: roas > 2.5 
+                ? "High Performer. Scale budget." 
+                : roas < 1.0 
+                ? "Creative Fatigue. Kill or remix." 
+                : "Stable. Monitor frequency."
+        });
+    });
+
+    setTimeout(() => setSimulating(false), 1500);
   };
 
-  const toggleFormat = (fmt: CreativeFormat) => {
-    const next = new Set(selectedFormats);
-    if (next.has(fmt)) next.delete(fmt);
-    else next.add(fmt);
-    setSelectedFormats(next);
+  const handleSelectFormat = (fmt: CreativeFormat) => {
+      const newSet = new Set(selectedFormats);
+      if (newSet.has(fmt)) newSet.delete(fmt);
+      else newSet.add(fmt);
+      setSelectedFormats(newSet);
   };
 
-  const handleConfirmGeneration = () => {
+  const confirmFormatSelection = () => {
       if (targetAngleId && selectedFormats.size > 0) {
           executeGeneration(targetAngleId, Array.from(selectedFormats));
           setIsFormatModalOpen(false);
-          setTargetAngleId(null);
           setSelectedFormats(new Set());
+          setTargetAngleId(null);
       }
   };
 
-  const selectAll = () => {
-      const all: CreativeFormat[] = [];
-      Object.values(FORMAT_GROUPS).forEach(group => all.push(...group));
-      setSelectedFormats(new Set(all));
+  // Drag and Drop for Image Analysis
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file && isConfigOpen) {
+       // Trigger image analysis
+       setIsAnalyzingImage(true);
+       const reader = new FileReader();
+       reader.onloadend = async () => {
+          try {
+             const context = await analyzeImageContext(reader.result as string);
+             setProject(prev => ({
+                 ...prev,
+                 productName: context.productName,
+                 productDescription: context.productDescription,
+                 targetAudience: context.targetAudience,
+                 targetCountry: context.targetCountry || prev.targetCountry
+             }));
+              // Update Root Node
+              setNodes(prev => prev.map(n => n.type === NodeType.ROOT ? {
+                  ...n,
+                  title: context.productName,
+                  description: context.productDescription
+              } : n));
+          } catch(e) { console.error(e); }
+          setIsAnalyzingImage(false);
+       };
+       reader.readAsDataURL(file);
+    }
   };
 
   return (
     <HashRouter>
-      <div className="relative w-full h-screen flex flex-col bg-slate-50 text-slate-900 overflow-hidden font-sans">
-        <header className="absolute top-0 w-full z-50 p-6 flex justify-center pointer-events-none">
-            <div className="glass-panel rounded-2xl px-2 py-2 flex items-center gap-4 shadow-xl shadow-slate-200/50 pointer-events-auto">
-                <div className="flex items-center gap-3 px-4">
-                    <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center shadow-lg shadow-slate-900/20">
-                        <Layers className="text-white w-4 h-4" />
-                    </div>
-                    <h1 className="font-display font-bold text-lg tracking-tight text-slate-900 hidden md:block">Andromeda</h1>
-                </div>
-                <div className="h-8 w-px bg-slate-200"></div>
-                <div className="flex bg-slate-100/50 p-1 rounded-xl">
-                    <button onClick={() => setActiveView('LAB')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeView === 'LAB' ? 'bg-white shadow-sm text-blue-600 ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
-                        <Microscope className="w-4 h-4" /> LAB
-                    </button>
-                    <button onClick={() => setActiveView('VAULT')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeView === 'VAULT' ? 'bg-amber-400 shadow-md shadow-amber-200 text-amber-950' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>
-                        <ShieldCheck className="w-4 h-4" /> VAULT
-                        {vaultNodes.length > 0 && (<span className="bg-amber-950/10 text-amber-900 px-1.5 rounded text-[10px] min-w-[20px] text-center">{vaultNodes.length}</span>)}
-                    </button>
-                </div>
-                <div className="h-8 w-px bg-slate-200"></div>
-                <div className="flex items-center gap-2">
-                    <button onClick={handleSimulatePerformance} disabled={simulating} className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-700 transition-all border border-slate-200 hover:border-blue-300 shadow-sm">
-                    <Activity className={`w-3 h-3 ${simulating ? 'animate-spin text-blue-500' : 'text-emerald-500'}`} />
-                    <span className="hidden md:inline">SIMULATE</span>
-                    </button>
-                    <button onClick={() => setIsConfigOpen(true)} className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 hover:text-slate-900"><Settings className="w-4 h-4" /></button>
-                </div>
-            </div>
-        </header>
+    <div className="w-screen h-screen bg-slate-50 flex overflow-hidden text-slate-900" onDragOver={handleDragOver} onDrop={handleDrop}>
+      
+      {/* --- LEFT SIDEBAR --- */}
+      <div className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-6 z-20 shadow-sm">
+        <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center mb-8 shadow-lg shadow-blue-500/20">
+            <span className="text-white font-display font-bold text-xl">A</span>
+        </div>
+        
+        <div className="flex flex-col gap-6 w-full">
+            <button 
+                onClick={() => setActiveView('LAB')}
+                className={`w-full relative py-3 flex justify-center transition-all ${activeView === 'LAB' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+                <Microscope className="w-6 h-6" />
+                {activeView === 'LAB' && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-600 rounded-l-full" />}
+            </button>
 
-        <main className="flex-1 relative mt-0 flex">
-          <div className={`flex-1 relative transition-all duration-500 ${selectedNode ? 'mr-[400px]' : 'mr-0'}`}>
-            <div className={`absolute inset-0 transition-opacity duration-300 ${activeView === 'LAB' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                <Canvas ref={canvasRef} nodes={labNodes} edges={labEdges} onNodeAction={handleNodeAction} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />
-            </div>
-            <div className={`absolute inset-0 bg-[#FFFBEB] overflow-y-auto transition-opacity duration-300 ${activeView === 'VAULT' ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'}`}>
-                <div className="max-w-7xl mx-auto px-8 pt-32 pb-12">
-                    {/* Vault View Content */}
-                    <div className="flex flex-col items-center mb-12">
-                        <ShieldCheck className="w-16 h-16 text-amber-500 mb-4" strokeWidth={1} />
-                        <h2 className="text-4xl font-display font-bold text-amber-900">The Vault</h2>
-                        <p className="text-amber-800/60 mt-2">Scale your winning assets.</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                         {vaultNodes.map(node => (<div key={node.id} className="h-[400px]"><Node data={node} selected={selectedNodeId === node.id} onClick={() => setSelectedNodeId(node.id)} onAction={handleNodeAction} isGridView={true} /></div>))}
-                    </div>
-                </div>
-            </div>
-          </div>
-          <div className={`fixed top-0 right-0 bottom-0 w-[400px] z-40 transform transition-transform duration-500 ease-in-out ${selectedNode ? 'translate-x-0' : 'translate-x-full'}`}>
-            {selectedNode && <Inspector node={selectedNode} onClose={() => setSelectedNodeId(null)} onUpdate={updateNode} onRegenerate={handleRegenerateNode} project={project} />}
-          </div>
-          
-          {isConfigOpen && (
-             <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[480px] glass-panel rounded-2xl p-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-                 <div className="flex justify-between items-center mb-6">
-                    <div className="flex items-center gap-2">
-                         <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white"><Sparkles className="w-4 h-4"/></div>
-                         <h2 className="font-bold text-lg font-display">New Project</h2>
-                    </div>
-                    <button onClick={() => setIsConfigOpen(false)} className="text-slate-400 hover:text-slate-800"><X className="w-5 h-5" /></button>
-                 </div>
+            <button 
+                onClick={() => setActiveView('VAULT')}
+                className={`w-full relative py-3 flex justify-center transition-all ${activeView === 'VAULT' ? 'text-amber-500' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+                <Package className="w-6 h-6" />
+                {activeView === 'VAULT' && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-amber-500 rounded-l-full" />}
+            </button>
+        </div>
 
-                 {/* URL ANALYZER (Firecrawl) */}
-                 <div className="mb-4 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-                    <label className="text-xs font-bold text-blue-900 uppercase tracking-wide mb-2 block">Import from URL (Firecrawl)</label>
-                    <div className="flex gap-2">
-                        <div className="relative flex-1">
-                            <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <div className="mt-auto flex flex-col gap-6 mb-4">
+             <button onClick={() => setIsConfigOpen(true)} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
+                 <Settings className="w-5 h-5" />
+             </button>
+        </div>
+      </div>
+
+      {/* --- MAIN AREA --- */}
+      <div className="flex-1 relative">
+        <Canvas 
+          ref={canvasRef}
+          nodes={activeView === 'LAB' ? labNodes : vaultNodes}
+          edges={activeView === 'LAB' ? labEdges : []}
+          onNodeAction={handleNodeAction}
+          selectedNodeId={selectedNodeId}
+          onSelectNode={setSelectedNodeId}
+        />
+
+        {/* TOP BAR */}
+        <div className="absolute top-0 left-0 w-full h-16 bg-white/80 backdrop-blur-sm border-b border-slate-200 flex items-center justify-between px-6 z-10">
+            <div>
+                <h1 className="text-sm font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    {activeView === 'LAB' ? <><Microscope className="w-4 h-4"/> Testing Lab</> : <><Package className="w-4 h-4 text-amber-500"/> Creative Vault</>}
+                </h1>
+                <p className="text-xs text-slate-400 font-mono">{activeView === 'LAB' ? `${labNodes.length} Assets Active` : `${vaultNodes.length} Winning Assets`}</p>
+            </div>
+
+            <div className="flex items-center gap-4">
+                 {activeView === 'LAB' && (
+                     <button 
+                        onClick={runSimulation}
+                        disabled={simulating}
+                        className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
+                     >
+                        <Activity className={`w-4 h-4 ${simulating ? 'animate-spin text-blue-500' : 'text-emerald-500'}`} />
+                        {simulating ? 'Simulating Traffic...' : 'Run Traffic Simulation'}
+                     </button>
+                 )}
+            </div>
+        </div>
+      </div>
+
+      {/* --- INSPECTOR --- */}
+      {selectedNode && (
+          <div className="w-[400px] h-full z-30 relative">
+            <Inspector 
+                node={selectedNode} 
+                onClose={() => setSelectedNodeId(null)} 
+                onUpdate={updateNode}
+                onRegenerate={handleRegenerateNode}
+                project={project}
+            />
+          </div>
+      )}
+
+      {/* --- PROJECT CONFIG MODAL --- */}
+      {isConfigOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex overflow-hidden max-h-[90vh]">
+             
+             {/* CONFIG LEFT: FIRECRAWL & IMAGE IMPORT */}
+             <div className="w-1/3 bg-slate-50 p-8 border-r border-slate-200 overflow-y-auto">
+                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Import Context</h3>
+                 
+                 <div className="space-y-6">
+                    {/* URL INPUT */}
+                    <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                        <label className="text-xs font-bold text-slate-700 mb-2 block flex items-center gap-2"><Globe className="w-3.5 h-3.5" /> Landing Page URL</label>
+                        <div className="flex gap-2">
                             <input 
-                                className="w-full pl-9 pr-3 py-2 bg-white border border-blue-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
-                                placeholder="https://your-landing-page.com"
+                                type="text" 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs" 
+                                placeholder="https://..."
                                 value={landingPageUrl}
                                 onChange={(e) => setLandingPageUrl(e.target.value)}
                             />
                         </div>
                         <button 
                             onClick={handleAnalyzeUrl}
-                            disabled={isAnalyzing || !landingPageUrl}
-                            className="px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg disabled:opacity-50 flex items-center gap-2 transition-colors"
+                            disabled={isAnalyzing}
+                            className="mt-2 w-full py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-bold rounded-lg transition-colors"
                         >
-                            {isAnalyzing ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : "Analyze"}
+                            {isAnalyzing ? "Scanning..." : "Analyze Site"}
                         </button>
                     </div>
-                 </div>
 
-                 {/* IMAGE ANALYZER (Gemini Vision) */}
-                 <div className="mb-4 p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-                     <label className="text-xs font-bold text-indigo-900 uppercase tracking-wide mb-2 block">Import from Image (Ad/Product)</label>
-                     <div className="flex items-center justify-between">
-                         <div className="text-[10px] text-indigo-700/60 max-w-[200px]">
-                            Upload a product shot or existing ad. AI will reverse-engineer the strategy.
-                         </div>
-                         <button 
+                    <div className="flex items-center gap-4">
+                        <div className="h-px bg-slate-200 flex-1"></div>
+                        <span className="text-[10px] text-slate-400 font-bold">OR</span>
+                        <div className="h-px bg-slate-200 flex-1"></div>
+                    </div>
+
+                    {/* IMAGE UPLOAD */}
+                    <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm relative group">
+                        <label className="text-xs font-bold text-slate-700 mb-2 block flex items-center gap-2"><ImageIcon className="w-3.5 h-3.5" /> Product Image Analysis</label>
+                        <div 
+                            className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition-colors"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={isAnalyzingImage}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg disabled:opacity-50 flex items-center gap-2 transition-colors"
-                         >
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                onChange={handleImageUpload} 
-                                className="hidden" 
-                                accept="image/*"
-                            />
-                            {isAnalyzingImage ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <><Upload className="w-3 h-3"/> Upload</>}
-                         </button>
-                     </div>
+                        >
+                            {isAnalyzingImage ? (
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className="text-xs text-blue-600 font-medium">Analyzing...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <Upload className="w-6 h-6 text-slate-400 mb-2" />
+                                    <span className="text-xs text-slate-500">Drop or Click to Upload</span>
+                                </>
+                            )}
+                        </div>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            accept="image/*" 
+                            onChange={handleImageUpload}
+                        />
+                    </div>
                  </div>
+             </div>
 
-                 {/* PRODUCT REFERENCE IMAGE (For Generation) */}
-                 <div className="mb-6 p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl">
-                     <label className="text-xs font-bold text-emerald-900 uppercase tracking-wide mb-2 block">Product Reference Photo (Optional)</label>
-                     <div className="flex items-center justify-between">
-                         <div className="text-[10px] text-emerald-700/60 max-w-[200px]">
-                            Upload a clean product shot. Andromeda will try to use this in generated ads.
-                         </div>
-                         <button 
+             {/* CONFIG RIGHT: MANUAL EDIT & STRATEGY */}
+             <div className="w-2/3 p-8 overflow-y-auto">
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h2 className="text-2xl font-display font-bold text-slate-900">Project Brief</h2>
+                        <p className="text-sm text-slate-500">Define the core strategy. AI will adhere to this.</p>
+                    </div>
+                    <button onClick={() => setIsConfigOpen(false)} className="p-2 hover:bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-400" /></button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 mb-6">
+                    <div className="col-span-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Product Name</label>
+                        <input className="w-full text-lg font-bold text-slate-900 border-b-2 border-slate-100 focus:border-blue-500 outline-none py-2 transition-colors" value={project.productName} onChange={e => setProject({...project, productName: e.target.value})} />
+                    </div>
+                    <div className="col-span-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Value Proposition (Description)</label>
+                        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-100 outline-none" rows={2} value={project.productDescription} onChange={e => setProject({...project, productDescription: e.target.value})} />
+                    </div>
+                    
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Target Audience</label>
+                        <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" value={project.targetAudience} onChange={e => setProject({...project, targetAudience: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Target Country</label>
+                        <div className="relative">
+                            <Globe className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm" value={project.targetCountry || ''} onChange={e => setProject({...project, targetCountry: e.target.value})} placeholder="e.g. Indonesia" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="h-px bg-slate-100 my-8"></div>
+
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2"><Target className="w-4 h-4 text-pink-500"/> Strategic Direction</h3>
+                
+                <div className="grid grid-cols-2 gap-6">
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Brand Voice</label>
+                        <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" value={project.brandVoice || ''} onChange={e => setProject({...project, brandVoice: e.target.value})} placeholder="e.g. Witty, Gen-Z, Professional" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">The Offer</label>
+                        <input className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" value={project.offer || ''} onChange={e => setProject({...project, offer: e.target.value})} placeholder="e.g. 50% Off, Buy 1 Get 1" />
+                    </div>
+
+                    <div className="col-span-2 grid grid-cols-2 gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        {/* FUNNEL STAGE REMOVED - AUTO SYNCED */}
+                        
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Market Awareness</label>
+                            <select 
+                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer hover:border-blue-300 transition-colors"
+                                value={project.marketAwareness}
+                                onChange={(e) => handleAwarenessChange(e.target.value as MarketAwareness)}
+                            >
+                                {Object.values(MarketAwareness).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <p className="text-[10px] text-slate-400 mt-1.5 leading-tight">
+                                Determines strategy. <br/>
+                                <b>Unaware/Problem</b> = Top of Funnel.<br/>
+                                <b>Solution</b> = Middle of Funnel.<br/>
+                                <b>Product/Most</b> = Bottom of Funnel.
+                            </p>
+                        </div>
+                        <div>
+                             <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Copy Framework</label>
+                             <select 
+                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm cursor-pointer hover:border-blue-300 transition-colors"
+                                value={project.copyFramework}
+                                onChange={(e) => setProject({...project, copyFramework: e.target.value as CopyFramework})}
+                            >
+                                {Object.values(CopyFramework).map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="h-px bg-slate-100 my-8"></div>
+
+                <div className="mb-8">
+                     <label className="text-xs font-bold text-slate-500 uppercase mb-2 block flex items-center gap-2"><ImageIcon className="w-3.5 h-3.5" /> Product Reference Image (Optional)</label>
+                     <div className="flex items-center gap-4">
+                         <div 
+                            className="w-24 h-24 bg-slate-50 border-2 border-dashed border-slate-200 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 transition-colors relative overflow-hidden"
                             onClick={() => productRefInputRef.current?.click()}
-                            className={`px-4 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-colors ${project.productReferenceImage ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                          >
-                            <input 
-                                type="file" 
-                                ref={productRefInputRef} 
-                                onChange={handleProductRefUpload} 
-                                className="hidden" 
-                                accept="image/*"
-                            />
-                            {project.productReferenceImage ? <><Package className="w-3 h-3"/> Uploaded</> : <><Upload className="w-3 h-3"/> Upload</>}
-                         </button>
-                     </div>
-                 </div>
-                 
-                 <div className="relative flex items-center py-2 mb-2">
-                     <div className="flex-grow border-t border-slate-200"></div>
-                     <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">Or Manual Entry</span>
-                     <div className="flex-grow border-t border-slate-200"></div>
-                 </div>
-
-                 <div className="space-y-4">
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 block">Product Name</label>
-                        <input className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-900 outline-none" value={project.productName} onChange={e => setProject({...project, productName: e.target.value})} placeholder="e.g. Zenith Focus Gummies"/>
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 block">Description</label>
-                        <textarea className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-900 outline-none min-h-[80px]" value={project.productDescription} onChange={e => setProject({...project, productDescription: e.target.value})} placeholder="What does it do? What is the main benefit?"/>
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 block">Target Audience</label>
-                        <input className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-900 outline-none" value={project.targetAudience} onChange={e => setProject({...project, targetAudience: e.target.value})} placeholder="e.g. Students, Gamers, Professionals"/>
-                     </div>
-                     <button onClick={() => setIsConfigOpen(false)} className="w-full bg-slate-900 hover:bg-black text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-slate-900/10 mt-2">Start Generating</button>
-                 </div>
-             </div>
-          )}
-
-          {isFormatModalOpen && (
-             <div className="absolute inset-0 bg-slate-900/40 z-50 flex items-center justify-center p-4">
-                 <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl h-[80vh] flex flex-col animate-in scale-95 duration-200">
-                     <div className="p-6 border-b flex justify-between items-center">
-                         <h2 className="font-bold text-xl">Select Formats</h2>
-                         <button onClick={() => setIsFormatModalOpen(false)}><X /></button>
-                     </div>
-                     <div className="flex-1 overflow-y-auto p-6">
-                         {Object.entries(FORMAT_GROUPS).map(([group, formats]) => (
-                             <div key={group} className="mb-8">
-                                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">{group}</h3>
-                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                     {formats.map(fmt => (
-                                         <button
-                                             key={fmt}
-                                             onClick={() => toggleFormat(fmt)}
-                                             className={`p-4 rounded-xl border text-left transition-all hover:shadow-md ${selectedFormats.has(fmt) ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 bg-slate-50 hover:bg-white'}`}
-                                         >
-                                             <div className="text-sm font-bold text-slate-800">{fmt}</div>
-                                         </button>
-                                     ))}
-                                 </div>
-                             </div>
-                         ))}
-                     </div>
-                     <div className="p-6 border-t bg-slate-50 flex justify-between items-center">
-                         <button onClick={selectAll} className="text-slate-500 text-sm font-medium hover:text-slate-800">Select All</button>
-                         <div className="flex items-center gap-4">
-                             <div className="text-sm text-slate-500"><strong className="text-slate-900">{selectedFormats.size}</strong> formats selected</div>
-                             <button onClick={handleConfirmGeneration} disabled={selectedFormats.size === 0} className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
-                                 Generate Creatives
-                             </button>
+                            {project.productReferenceImage ? (
+                                <img src={project.productReferenceImage} className="w-full h-full object-cover" />
+                            ) : <Upload className="w-6 h-6 text-slate-300" />}
+                         </div>
+                         <div className="flex-1">
+                             <p className="text-xs text-slate-500 leading-relaxed">Upload a clear photo of your product. The AI will try to include this product in the generated visuals.</p>
                          </div>
                      </div>
-                 </div>
+                     <input type="file" ref={productRefInputRef} className="hidden" accept="image/*" onChange={handleProductRefUpload}/>
+                </div>
+
+                <button 
+                    onClick={() => setIsConfigOpen(false)}
+                    className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 transition-all transform hover:scale-[1.01]"
+                >
+                    Save Strategy & Enter Lab
+                </button>
              </div>
-          )}
-        </main>
-      </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- FORMAT SELECTION MODAL --- */}
+      {isFormatModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-8">
+              <div className="bg-white w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                      <div>
+                          <h2 className="text-xl font-display font-bold text-slate-900">Select Creative Formats</h2>
+                          <p className="text-sm text-slate-500">Choose formats to generate for this angle.</p>
+                      </div>
+                      <div className="flex gap-3">
+                          <button onClick={() => setIsFormatModalOpen(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-200 rounded-lg font-bold text-sm">Cancel</button>
+                          <button 
+                            onClick={confirmFormatSelection} 
+                            disabled={selectedFormats.size === 0}
+                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg font-bold text-sm shadow-lg shadow-blue-500/20 transition-all"
+                          >
+                              Generate {selectedFormats.size} Creatives
+                          </button>
+                      </div>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+                      <div className="grid grid-cols-2 gap-8">
+                          {Object.entries(FORMAT_GROUPS).map(([group, formats]) => (
+                              <div key={group} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                      {group.includes("Instagram") ? <Smartphone className="w-3.5 h-3.5"/> : <Layers className="w-3.5 h-3.5"/>}
+                                      {group}
+                                  </h3>
+                                  <div className="grid grid-cols-2 gap-3">
+                                      {formats.map(fmt => (
+                                          <button
+                                              key={fmt}
+                                              onClick={() => handleSelectFormat(fmt)}
+                                              className={`text-left px-3 py-2.5 rounded-lg text-xs font-medium border transition-all ${selectedFormats.has(fmt) ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm' : 'bg-slate-50 border-transparent hover:bg-slate-100 text-slate-600'}`}
+                                          >
+                                              {fmt}
+                                          </button>
+                                      ))}
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+    </div>
     </HashRouter>
   );
 };

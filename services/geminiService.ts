@@ -1,15 +1,7 @@
-
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
-import { CreativeFormat, ProjectContext, AdCopy } from "../types";
+import { CreativeFormat, ProjectContext, AdCopy, FunnelStage, CreativeConcept, GenResult, MarketAwareness, CopyFramework } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-
-// --- Types for Responses with Usage ---
-export interface GenResult<T> {
-  data: T;
-  inputTokens: number;
-  outputTokens: number;
-}
 
 // --- Utils ---
 
@@ -105,7 +97,8 @@ export const analyzeLandingPageContext = async (markdown: string): Promise<Proje
       {
         "productName": "The explicit name of the product/service",
         "productDescription": "A concise, persuasive summary of what it is and the main value prop (max 2 sentences)",
-        "targetAudience": "The specific demographic or psychographic groups targeting"
+        "targetAudience": "The specific demographic or psychographic groups targeting",
+        "targetCountry": "The primary country or region this product targets (e.g. Indonesia, USA)"
       }
     `;
 
@@ -120,7 +113,8 @@ export const analyzeLandingPageContext = async (markdown: string): Promise<Proje
                     properties: {
                         productName: { type: Type.STRING },
                         productDescription: { type: Type.STRING },
-                        targetAudience: { type: Type.STRING }
+                        targetAudience: { type: Type.STRING },
+                        targetCountry: { type: Type.STRING }
                     },
                     required: ["productName", "productDescription", "targetAudience"]
                 }
@@ -145,12 +139,14 @@ export const analyzeImageContext = async (base64Image: string): Promise<ProjectC
       1. Identify the product being sold.
       2. Deduce its core value proposition.
       3. Profiling who this product is for.
+      4. Detect the language or cultural context if visible.
 
       Output strict JSON:
       {
         "productName": "Name of product (guess if not visible)",
         "productDescription": "Persuasive summary of what it does and the benefit shown.",
-        "targetAudience": "Demographic/Psychographic profile based on the visual aesthetic."
+        "targetAudience": "Demographic/Psychographic profile based on the visual aesthetic.",
+        "targetCountry": "Guessed target country based on text/models (e.g. Indonesia, USA, Global)"
       }
     `;
 
@@ -170,7 +166,8 @@ export const analyzeImageContext = async (base64Image: string): Promise<ProjectC
                     properties: {
                         productName: { type: Type.STRING },
                         productDescription: { type: Type.STRING },
-                        targetAudience: { type: Type.STRING }
+                        targetAudience: { type: Type.STRING },
+                        targetCountry: { type: Type.STRING }
                     },
                     required: ["productName", "productDescription", "targetAudience"]
                 }
@@ -185,20 +182,28 @@ export const analyzeImageContext = async (base64Image: string): Promise<ProjectC
 };
 
 export const generatePersonas = async (project: ProjectContext): Promise<GenResult<any[]>> => {
-  // DYNAMIC PROMPTING: We ask the AI to identify the archetypes, instead of forcing "Skeptic/Aspirer/Sufferer".
+  // BRAND VOICE INJECTION
+  const brandContext = project.brandVoice ? `Brand Voice: ${project.brandVoice}. Ensure personas align with this tone.` : '';
+  const countryContext = project.targetCountry ? `TARGET COUNTRY: ${project.targetCountry}. Names and cultural behaviors MUST be native to ${project.targetCountry}.` : 'Global Audience.';
+
   const prompt = `
-    Role: Consumer Psychologist.
+    Role: Senior Consumer Psychologist & Strategist.
     Product: ${project.productName} (${project.productDescription}).
     Audience: ${project.targetAudience}.
+    ${countryContext}
+    ${brandContext}
 
-    Task: Identify the 3 most distinct and profitable Psychological Archetypes for this product.
-    Focus on their internal emotional drivers.
+    Task: Identify the 3 most distinct and profitable Psychological Archetypes for this product in ${project.targetCountry || "the market"}.
+    Do NOT just give generic names like "Busy Mom". Be specific and vivid.
+    
+    IMPORTANT: Use culturally appropriate names and contexts for ${project.targetCountry || "Western markets"}.
 
     Return JSON Array:
     [{
-      "name": "Creative Name (e.g., The Overwhelmed Parent)",
-      "motivation": "Core driver",
-      "deepFear": "Specific anxiety",
+      "name": "Creative Name (e.g., 'Budi the Corporate Dad' for Indonesia, 'John the Tech Bro' for USA)",
+      "profile": "A vivid 1-sentence description including age, role, and specific context (e.g., '40s male, high income, works 60h weeks in Jakarta').",
+      "motivation": "Core emotional driver (Why they buy)",
+      "deepFear": "Specific anxiety or pain point",
       "secretDesire": "Unspoken want"
     }]
   `;
@@ -215,11 +220,12 @@ export const generatePersonas = async (project: ProjectContext): Promise<GenResu
             type: Type.OBJECT,
             properties: {
               name: { type: Type.STRING },
+              profile: { type: Type.STRING },
               motivation: { type: Type.STRING },
               deepFear: { type: Type.STRING },
               secretDesire: { type: Type.STRING }
             },
-            required: ["name", "motivation", "deepFear"]
+            required: ["name", "profile", "motivation", "deepFear"]
           }
         }
       }
@@ -234,7 +240,7 @@ export const generatePersonas = async (project: ProjectContext): Promise<GenResu
     console.error("Error generating personas:", error);
     // Fallback if AI fails completely
     return { 
-        data: [{ name: "The Ideal Customer", motivation: "To solve their problem", deepFear: "Failure", secretDesire: "Success" }], 
+        data: [{ name: "The Ideal Customer", profile: "Matches target audience perfectly.", motivation: "To solve their problem", deepFear: "Failure", secretDesire: "Success" }], 
         inputTokens: 0, 
         outputTokens: 0 
     };
@@ -242,16 +248,43 @@ export const generatePersonas = async (project: ProjectContext): Promise<GenResu
 };
 
 export const generateAngles = async (project: ProjectContext, personaName: string, motivation: string): Promise<GenResult<any[]>> => {
-  // DYNAMIC PROMPTING: Let AI decide the best angles (Logic, Emotion, Scarcity, Story, etc.)
+  // EUGENE SCHWARTZ AWARENESS LOGIC
+  let awarenessStrategy = "";
+  switch (project.marketAwareness) {
+      case MarketAwareness.UNAWARE:
+          awarenessStrategy = "Strategy: UNAWARE Audience. Do NOT mention the product or technical features in the hook. Focus on the symptom, a story, or a shocking fact. Bridge to the problem.";
+          break;
+      case MarketAwareness.PROBLEM_AWARE:
+          awarenessStrategy = "Strategy: PROBLEM AWARE Audience. Focus heavily on the pain point and agitation. Show empathy. 'Does your back hurt?'";
+          break;
+      case MarketAwareness.SOLUTION_AWARE:
+          awarenessStrategy = "Strategy: SOLUTION AWARE Audience. Focus on mechanism. Why current solutions fail and why this new way is better. Comparison.";
+          break;
+      case MarketAwareness.PRODUCT_AWARE:
+          awarenessStrategy = "Strategy: PRODUCT AWARE Audience. They know you. Focus on the OFFER, the Deal, and overcoming hesitation.";
+          break;
+      case MarketAwareness.MOST_AWARE:
+          awarenessStrategy = "Strategy: MOST AWARE Audience. Urgency. Scarcity. 'Last chance'.";
+          break;
+      default:
+          awarenessStrategy = "Strategy: Focus on high-impact hooks.";
+  }
+
+  const countryContext = project.targetCountry ? `Cultural Context: Adapt the hooks for ${project.targetCountry}. Use cultural nuances/slang appropriate for this region.` : '';
+
   const prompt = `
-    Role: Direct Response Copywriter.
+    Role: Direct Response Copywriter (Eugene Schwartz Method).
     Context: Selling ${project.productName} to "${personaName}" (Motivation: ${motivation}).
+    Market Awareness Level: ${project.marketAwareness || 'General'}.
+    ${countryContext}
+    
+    INSTRUCTION: ${awarenessStrategy}
     
     Task: Generate 3 high-converting Ad Angles/Hooks.
     They should be distinct (e.g., one logic-based, one fear-based, one aspirational).
 
     Return JSON Array:
-    [{ "headline": "Punchy Hook (<8 words)", "painPoint": "Visceral detail" }]
+    [{ "headline": "Punchy Hook (<8 words)", "painPoint": "Visceral detail of the problem/desire" }]
   `;
 
   try {
@@ -283,11 +316,157 @@ export const generateAngles = async (project: ProjectContext, personaName: strin
   }
 };
 
-export const generateAdCopy = async (project: ProjectContext, personaName: string, angle: string): Promise<GenResult<AdCopy>> => {
+// --- STRATEGIST AGENT (The Bridge) ---
+
+export const generateCreativeConcept = async (
+    project: ProjectContext, 
+    personaName: string, 
+    angle: string,
+    format: CreativeFormat
+): Promise<GenResult<CreativeConcept>> => {
+    
+    const brandInstruction = project.brandVoice ? `Brand Voice: ${project.brandVoice}.` : '';
+    const countryContext = project.targetCountry ? `TARGET COUNTRY: ${project.targetCountry}. Visuals must feature people/environments native to ${project.targetCountry}.` : '';
+
     const prompt = `
-      Role: Copywriter.
-      Prod: ${project.productName}. Target: ${personaName}. Hook: ${angle}.
-      Rules: No AI buzzwords. Casual tone.
+        Role: Creative Director.
+        Task: Create a cohesive Ad Concept connecting Visuals and Copy.
+        Product: ${project.productName}. 
+        Target: ${personaName}. 
+        Hook: ${angle}.
+        Format: ${format}.
+        ${brandInstruction}
+        ${countryContext}
+
+        The Visual Scene and the Copy Direction must perfectly match.
+        Example: If visual is "Chaotic messy desk", copy should be "Feeling overwhelmed?".
+
+        Return JSON:
+        {
+            "visualScene": "Detailed description of the imagery/scene. Mention the demographics (${project.targetCountry} ethnicity/looks).",
+            "copyAngle": "The specific psychological angle the copywriter should take.",
+            "rationale": "Why this works."
+        }
+    `;
+
+    try {
+        const response = await runWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        visualScene: { type: Type.STRING },
+                        copyAngle: { type: Type.STRING },
+                        rationale: { type: Type.STRING }
+                    },
+                    required: ["visualScene", "copyAngle", "rationale"]
+                }
+            }
+        }));
+
+        return {
+            data: JSON.parse(response.text || "{}") as CreativeConcept,
+            inputTokens: response.usageMetadata?.promptTokenCount || 0,
+            outputTokens: response.usageMetadata?.candidatesTokenCount || 0
+        };
+    } catch (e) {
+        return {
+            data: { visualScene: `Shot of ${project.productName}`, copyAngle: angle, rationale: "Default" },
+            inputTokens: 0,
+            outputTokens: 0
+        }
+    }
+}
+
+// --- COMPLIANCE AGENT ---
+
+export const checkAdCompliance = async (copy: AdCopy): Promise<string> => {
+    const prompt = `
+        Role: Meta Ads Policy & Compliance Officer.
+        Task: Review this ad copy for banned content.
+        
+        Rules:
+        1. No personal attributes ("Are you fat?", "You look tired").
+        2. No misleading health claims ("Cures cancer", "Lose 10lbs overnight").
+        3. No false scarcity or button imagery in image text.
+        4. No profanity.
+
+        Copy to check:
+        Headline: ${copy.headline}
+        Primary: ${copy.primaryText}
+
+        If compliant, return "COMPLIANT".
+        If risky, return a SHORT warning explaining why.
+    `;
+
+    try {
+        const response = await runWithRetry<GenerateContentResponse>(() => ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        }));
+        const result = response.text?.trim() || "COMPLIANT";
+        return result.includes("COMPLIANT") ? "Safe" : result;
+    } catch (e) {
+        return "Check Failed";
+    }
+}
+
+export const generateAdCopy = async (
+    project: ProjectContext, 
+    personaName: string, 
+    concept: CreativeConcept
+): Promise<GenResult<AdCopy>> => {
+    
+    // BUILD CONTEXT STRINGS
+    const voiceInstruction = project.brandVoice ? `Tone of Voice: ${project.brandVoice}.` : "Tone: Authentic, human, no AI buzzwords.";
+    const offerContext = project.offer ? `THE OFFER: "${project.offer}". This is the Closer. Make it irresistible.` : "";
+    const countryContext = project.targetCountry 
+        ? `LANGUAGE RULE: Output STRICTLY in the native language of ${project.targetCountry}. Use local idioms/currency.` 
+        : "Language: English (US).";
+    
+    // FRAMEWORK INSTRUCTION
+    let frameworkInstruction = "";
+    switch (project.copyFramework) {
+        case CopyFramework.PAS:
+            frameworkInstruction = "Framework: P.A.S. (Problem -> Agitation -> Solution). Start with pain, twist the knife, present product as the only saviour.";
+            break;
+        case CopyFramework.AIDA:
+            frameworkInstruction = "Framework: A.I.D.A. (Attention -> Interest -> Desire -> Action). Hook them, keep them reading, make them want it, tell them what to do.";
+            break;
+        case CopyFramework.BAB:
+            frameworkInstruction = "Framework: B.A.B. (Before -> After -> Bridge). Show the hell they are in, the heaven they want, and how the product bridges the gap.";
+            break;
+        case CopyFramework.FAB:
+            frameworkInstruction = "Framework: F.A.B. (Features -> Advantages -> Benefits). Don't just list specs, explain why they matter.";
+            break;
+        case CopyFramework.STORY:
+            frameworkInstruction = "Framework: Storytelling. Open in media res. Use a micro-narrative of transformation.";
+            break;
+        default:
+            frameworkInstruction = "Framework: High Conversion Direct Response.";
+    }
+
+    const prompt = `
+      Role: Expert Direct Response Copywriter.
+      Product: ${project.productName}. 
+      Target: ${personaName}. 
+      Direction: ${concept.copyAngle}.
+      Visual Context: The image will show ${concept.visualScene}.
+      
+      ${voiceInstruction}
+      ${offerContext}
+      ${frameworkInstruction}
+      ${countryContext}
+
+      Rules: 
+      - Start with a strong hook (First 3 lines matter most).
+      - Match the visual context.
+      - Keep it compliant (no prohibited claims).
+      - If an Offer exists, End with it + CTA.
+
       Return JSON: { "primaryText": "...", "headline": "...", "cta": "..." }
     `;
   
@@ -315,7 +494,7 @@ export const generateAdCopy = async (project: ProjectContext, personaName: strin
       };
     } catch (error) {
       return { 
-          data: { primaryText: "Check out this product.", headline: angle, cta: "Shop Now" }, 
+          data: { primaryText: "Check out this product.", headline: concept.copyAngle, cta: "Shop Now" }, 
           inputTokens: 0, 
           outputTokens: 0 
       };
@@ -399,7 +578,8 @@ const constructImagePrompt = (
     scene: string, 
     vibe: string, 
     keywords: string,
-    hasReferenceImage: boolean = false
+    hasReferenceImage: boolean = false,
+    targetCountry: string = ""
 ) => {
     // Token-Efficient Prompt Structure
     let prompt = `
@@ -413,6 +593,10 @@ const constructImagePrompt = (
     RULES: No text labels. No frames.
     `;
     
+    if (targetCountry) {
+        prompt += ` DEMOGRAPHIC: Models/People MUST appear to be native to ${targetCountry} (Ethnicity/Clothing/Environment).`;
+    }
+
     if (hasReferenceImage) {
         prompt += " INSTRUCTION: Use the provided product image as the visual reference for the SUBJECT. Integrate it naturally into the scene.";
     }
@@ -425,14 +609,14 @@ export const generateCreativeImage = async (
   personaName: string,
   angleHeadline: string,
   format: CreativeFormat,
-  styleContext: string,
+  styleContext: string, // This now comes from the 'Concept' visual scene
   aspectRatio: string = "1:1"
 ): Promise<GenResult<string | null>> => {
   
   // --- LOGIC DEFINITION (Client Side - No Token Cost) ---
   
   let medium = "Photography";
-  let sceneDescription = "";
+  let sceneDescription = styleContext; // Use the Creative Director's detailed scene
   let isLoFi = false;
   let isVector = false;
 
@@ -482,19 +666,19 @@ export const generateCreativeImage = async (
     case CreativeFormat.US_VS_THEM:
         medium = "AMATEUR PHONE PHOTO";
         isLoFi = true;
-        sceneDescription = `Messy candid shot of ${project.productName} on cluttered table. Harsh flash. Authentic UGC.`;
+        if (!sceneDescription) sceneDescription = `Messy candid shot of ${project.productName} on cluttered table. Harsh flash. Authentic UGC.`;
         break;
 
     case CreativeFormat.POV_HANDS:
         medium = "FIRST PERSON POV PHOTO";
         isLoFi = true;
-        sceneDescription = `POV looking down at hands holding ${project.productName}. Background: messy room. Lighting: Flash.`;
+        if (!sceneDescription) sceneDescription = `POV looking down at hands holding ${project.productName}. Background: messy room. Lighting: Flash.`;
         break;
     
     case CreativeFormat.UGC_MIRROR:
         medium = "MIRROR SELFIE PHOTO";
         isLoFi = true;
-        sceneDescription = `Bathroom mirror selfie. Hand holding phone. ${project.productName} on counter. Casual influencer vibe.`;
+        if (!sceneDescription) sceneDescription = `Bathroom mirror selfie. Hand holding phone. ${project.productName} on counter. Casual influencer vibe.`;
         break;
 
     case CreativeFormat.MEME:
@@ -508,12 +692,12 @@ export const generateCreativeImage = async (
     case CreativeFormat.STORY_POLL:
         medium = "PHONE PHOTO + UI OVERLAY";
         isLoFi = true;
-        sceneDescription = `Vertical shot of ${project.productName}. Overlay: Instagram 'Poll' sticker. Question: '${angleHeadline}?'.`;
+        if (!sceneDescription) sceneDescription = `Vertical shot of ${project.productName}. Overlay: Instagram 'Poll' sticker. Question: '${angleHeadline}?'.`;
         break;
 
     case CreativeFormat.REELS_THUMBNAIL:
         medium = "VIDEO THUMBNAIL";
-        sceneDescription = `Action shot of ${project.productName}. Overlay: Play button. Bold text: '${angleHeadline}'.`;
+        if (!sceneDescription) sceneDescription = `Action shot of ${project.productName}. Overlay: Play button. Bold text: '${angleHeadline}'.`;
         break;
 
     // --- VECTOR / EDUCATIONAL ---
@@ -525,7 +709,7 @@ export const generateCreativeImage = async (
     case CreativeFormat.CARTOON:
         medium = "FLAT VECTOR ILLUSTRATION";
         isVector = true;
-        sceneDescription = `Minimalist infographic for '${angleHeadline}'. Style: Corporate Memphis / Flat Design. Solid background.`;
+        if (!sceneDescription) sceneDescription = `Minimalist infographic for '${angleHeadline}'. Style: Corporate Memphis / Flat Design. Solid background.`;
         break;
         
     case CreativeFormat.BIG_FONT:
@@ -536,7 +720,7 @@ export const generateCreativeImage = async (
 
     case CreativeFormat.COLLAGE_SCRAPBOOK:
         medium = "MIXED MEDIA COLLAGE";
-        sceneDescription = `Chaotic collage of ${project.productName}, ripped paper, tape, notes. Punk zine style.`;
+        if (!sceneDescription) sceneDescription = `Chaotic collage of ${project.productName}, ripped paper, tape, notes. Punk zine style.`;
         break;
 
     // --- HIGH END ---
@@ -547,22 +731,20 @@ export const generateCreativeImage = async (
     case CreativeFormat.ANNOTATED_PRODUCT:
     case CreativeFormat.BILLBOARD:
         medium = "HIGH END COMMERCIAL PHOTO";
-        sceneDescription = `Award-winning product shot of ${project.productName}. Composition: ${styleContext || "Minimal"}.`;
+        if (!sceneDescription) sceneDescription = `Award-winning product shot of ${project.productName}. Composition: Minimal.`;
         break;
 
     default:
         medium = "PRODUCT PHOTO";
-        sceneDescription = `Standard commercial shot of ${project.productName}.`;
+        if (!sceneDescription) sceneDescription = `Standard commercial shot of ${project.productName}.`;
         break;
   }
 
   // --- STYLE OVERRIDE LOGIC ---
-  let activeStyle = styleContext;
-  if (!activeStyle || isLoFi || isVector) {
-      if (isLoFi) activeStyle = "Raw, amateur, authentic";
-      else if (isVector) activeStyle = "Flat, vector, minimal";
-      else activeStyle = "Professional, sharp";
-  }
+  let activeStyle = "";
+  if (isLoFi) activeStyle = "Raw, amateur, authentic";
+  else if (isVector) activeStyle = "Flat, vector, minimal";
+  else activeStyle = "Professional, sharp";
 
   const technicalBoosters = getVisualEnhancers(activeStyle, format);
   
@@ -574,7 +756,8 @@ export const generateCreativeImage = async (
       sceneDescription, 
       activeStyle, 
       technicalBoosters,
-      !!project.productReferenceImage // Pass true if reference image exists
+      !!project.productReferenceImage, // Pass true if reference image exists
+      project.targetCountry || "" // Pass Target Country
   );
 
   return callImageGen(prompt, aspectRatio, project.productReferenceImage);
@@ -592,10 +775,13 @@ export const generateCarouselSlides = async (
     let inputTokens = 0;
     let outputTokens = 0;
 
+    const countryContext = project.targetCountry ? `Language: ${project.targetCountry} Native.` : '';
+
     if (isEducational) {
        // --- JSON PARSING SAFETY ---
        const copyPrompt = `
           Task: Write 4 short carousel slide texts for: "${angleHeadline}".
+          ${countryContext}
           Return JSON Array of 4 strings (Max 5 words each).
        `;
 
@@ -628,6 +814,7 @@ export const generateCarouselSlides = async (
        const enhancers = getVisualEnhancers(styleContext, format);
        const basePrompt = `
          Context: 4-Slide Visuals for ${project.productName}. Style: ${styleContext}.
+         ${countryContext}
          Return JSON Array of 4 distinct scene descriptions.
        `;
        
@@ -646,7 +833,7 @@ export const generateCarouselSlides = async (
             outputTokens += visualResponse.usageMetadata?.candidatesTokenCount || 0;
             
             slidePrompts = visuals.map((v: string) => 
-                `CMD: Gen Photo. SCENE: ${v}. STYLE: ${styleContext}. SPECS: ${enhancers} ${project.productReferenceImage ? 'INSTRUCTION: Use reference image product.' : ''}`
+                constructImagePrompt(project.productName, "", "Photography", v, styleContext, enhancers, !!project.productReferenceImage, project.targetCountry)
             );
        } catch (e) {
            slidePrompts = [1,2,3,4].map(() => `CMD: Gen Photo. SUBJECT: ${project.productName}. STYLE: ${styleContext}`);
@@ -671,8 +858,10 @@ export const generateCarouselSlides = async (
 // --- Inspector Tools ---
 
 export const generateAdScript = async (project: ProjectContext, personaName: string, angle: string): Promise<string> => {
+    const countryContext = project.targetCountry ? `Language: ${project.targetCountry} native language.` : '';
     const prompt = `
         Role: TikTok Strategist. Prod: ${project.productName}. Hook: ${angle}.
+        ${countryContext}
         Write 15s Script. Format: [Visual] Audio.
     `;
     try {

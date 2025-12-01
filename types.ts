@@ -1,4 +1,5 @@
 
+
 export enum NodeType {
   ROOT = 'ROOT',
   PERSONA = 'PERSONA',
@@ -59,6 +60,31 @@ export enum CampaignStage {
   SCALING = 'SCALING'  // Advantage+ / Broad - Cost Cap/ROAS Goal
 }
 
+// NEW: Marketing Funnel Stages
+export enum FunnelStage {
+  TOF = 'Top of Funnel (Cold Awareness)',
+  MOF = 'Middle of Funnel (Consideration)',
+  BOF = 'Bottom of Funnel (Retargeting/Conversion)'
+}
+
+// NEW: Eugene Schwartz Market Awareness Levels
+export enum MarketAwareness {
+  UNAWARE = 'Unaware (No knowledge of problem)',
+  PROBLEM_AWARE = 'Problem Aware (Knows problem, seeks solution)',
+  SOLUTION_AWARE = 'Solution Aware (Knows solutions, comparing options)',
+  PRODUCT_AWARE = 'Product Aware (Knows you, needs a deal)',
+  MOST_AWARE = 'Most Aware (Ready to buy, needs urgency)'
+}
+
+// NEW: Direct Response Frameworks
+export enum CopyFramework {
+  PAS = 'PAS (Problem, Agitation, Solution)',
+  AIDA = 'AIDA (Attention, Interest, Desire, Action)',
+  BAB = 'BAB (Before, After, Bridge)',
+  FAB = 'FAB (Features, Advantages, Benefits)',
+  STORY = 'Storytelling / Hero\'s Journey'
+}
+
 export type ViewMode = 'LAB' | 'VAULT';
 
 export interface Metrics {
@@ -73,6 +99,7 @@ export interface AdCopy {
   primaryText: string;
   headline: string;
   cta: string;
+  complianceNotes?: string; // New field for safety checks
 }
 
 export interface NodeData {
@@ -129,4 +156,27 @@ export interface ProjectContext {
   targetAudience: string;
   landingPageUrl?: string; // Added for Firecrawl analysis
   productReferenceImage?: string; // NEW: Optional Product Reference Image (Base64)
+  
+  // New Strategic Inputs
+  targetCountry?: string; // e.g. "Indonesia", "USA", "Brazil"
+  brandVoice?: string; // e.g. "Witty", "Medical", "Gen-Z"
+  funnelStage?: FunnelStage;
+  
+  // NEW: Deep Strategy Inputs
+  offer?: string; // e.g. "50% Off First Order", "Free Shipping", "30 Day Guarantee"
+  marketAwareness?: MarketAwareness;
+  copyFramework?: CopyFramework;
+}
+
+// Internal Interface for the "Strategist Agent"
+export interface CreativeConcept {
+  visualScene: string; // Description for the Visualizer
+  copyAngle: string;   // Direction for the Copywriter
+  rationale: string;
+}
+
+export interface GenResult<T> {
+  data: T;
+  inputTokens: number;
+  outputTokens: number;
 }
