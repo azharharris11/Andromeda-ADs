@@ -1,3 +1,5 @@
+
+
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { CreativeFormat, ProjectContext, AdCopy, FunnelStage, CreativeConcept, GenResult, MarketAwareness, CopyFramework } from "../types";
 
@@ -38,28 +40,32 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
     // FORMAT RULES (The "Chassis")
     // We define the non-negotiable base texture/quality for each format group.
     
-    // 1. INSTAGRAM NATIVE / APP UI (NEW CATEGORY)
+    // 1. INSTAGRAM NATIVE / APP UI
     if (
         format === CreativeFormat.STORY_POLL || 
+        format === CreativeFormat.STORY_QNA || 
         format === CreativeFormat.REELS_THUMBNAIL || 
         format === CreativeFormat.DM_NOTIFICATION ||
         format === CreativeFormat.TWITTER_REPOST ||
         format === CreativeFormat.PHONE_NOTES ||
         format === CreativeFormat.GMAIL_UX ||
-        format === CreativeFormat.CHAT_CONVERSATION
+        format === CreativeFormat.CHAT_CONVERSATION ||
+        format === CreativeFormat.SOCIAL_COMMENT_STACK // NEW
     ) {
         return "style:mobile-app-screenshot, quality:high-fidelity-ui, texture:screen-pixel, vibe:authentic-social-media, perspective:flat-2d-screen-capture";
     }
 
-    // 2. LO-FI / RAW
+    // 2. LO-FI / RAW / REALISM
     if (
         format === CreativeFormat.UGLY_VISUAL || 
         format === CreativeFormat.REDDIT_THREAD ||
         format === CreativeFormat.POV_HANDS ||
         format === CreativeFormat.UGC_MIRROR ||
-        format === CreativeFormat.US_VS_THEM
+        format === CreativeFormat.US_VS_THEM ||
+        format === CreativeFormat.HANDHELD_TWEET || // NEW
+        format === CreativeFormat.STICKY_NOTE_REALISM // NEW
     ) {
-        return "texture:grainy/noise, lighting:harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera";
+        return "texture:grainy/noise, lighting:harsh-flash, quality:amateur/raw/authentic, device:smartphone-camera, focus:sharp-product-blurry-background";
     }
 
     // 3. MEME
@@ -81,8 +87,14 @@ const getVisualEnhancers = (style: string, format: CreativeFormat): string => {
         return "style:flat-vector/minimal-ui, shading:none, depth:2d, color:solid-hex-codes";
     }
 
-    // 5. HIGH END / CINEMATIC (The only place where 'styleContext' truly overrides quality)
-    // We inject the Creative Director's vision here.
+    // 5. HIGH END / CINEMATIC / INFO-PRODUCT
+    if (
+        format === CreativeFormat.BENEFIT_POINTERS // NEW
+    ) {
+        return "style:high-end-product-photography, lighting:studio-softbox, quality:8k, overlay:clean-white-graphics";
+    }
+
+    // Default High End
     return `${style}, quality:8k/masterpiece/sharp-focus`;
 };
 
@@ -630,6 +642,24 @@ export const generateCreativeImage = async (
   // We optimize these descriptions to be concise for the prompt
   switch (format) {
     // --- INSTAGRAM NATIVE / APP UI ---
+    
+    // NEW: The "Influencer Q&A" Look
+    case CreativeFormat.STORY_QNA:
+        medium = "SMARTPHONE SCREENSHOT (INSTAGRAM STORY OVERLAY)";
+        isLoFi = true;
+        if (!sceneDescription) {
+            sceneDescription = `
+            Visual is a vertical phone screenshot of an Instagram Story.
+            BACKGROUND LAYER: A high-quality, authentic photo of ${project.productName} being held in a hand or placed on a bathroom counter. Good lighting, depth of field.
+            UI LAYER (MUST INCLUDE): 
+            1. UPPER CENTER: A white 'Ask Me Anything' Question Box sticker. Header is black saying 'Ask Me Anything'. The question text inside says: 'Spill the tea on ${angleHeadline} ☕'.
+            2. ADDED ELEMENTS: Hand-drawn style arrow pointing from the question box to the product.
+            3. TEXT BUBBLES: Floating text bubbles (Green or Pink background) with testimonials like "Magic potion!" or "Obsessed".
+            4. BOTTOM: 'Send message' pill-shaped text field.
+            `;
+        }
+        break;
+
     case CreativeFormat.STORY_POLL:
         medium = "SMARTPHONE SCREENSHOT (INSTAGRAM STORY)";
         isLoFi = true; 
@@ -723,6 +753,57 @@ export const generateCreativeImage = async (
         medium = "MINIMAL WEB UI";
         isVector = true;
         sceneDescription = `Google search bar. Text: '${angleHeadline}'. Dropdown suggestions. White background.`;
+        break;
+
+    // --- NEW DIRECT RESPONSE FORMATS ---
+
+    case CreativeFormat.BENEFIT_POINTERS:
+        medium = "PRODUCT PHOTOGRAPHY WITH INFOGRAPHIC ELEMENTS";
+        if (!sceneDescription) {
+            sceneDescription = `
+            High-end studio shot of ${project.productName} centered.
+            OVERLAY: Thin white lines pointing to 3 distinct features of the product.
+            LABELS: At the end of each line, a small white floating bubble containing short text (e.g., 'Hydrating', 'Organic').
+            VIBE: Clinical, Educational, Premium.
+            `;
+        }
+        break;
+
+    case CreativeFormat.SOCIAL_COMMENT_STACK:
+        medium = "COMPOSITE SOCIAL MEDIA IMAGE";
+        if (!sceneDescription) {
+            sceneDescription = `
+            BACKGROUND: Authentic UGC lifestyle photo of ${project.productName} in use.
+            OVERLAY: 3 or 4 distinct Social Media Comment bubbles (Instagram or TikTok style) stacked vertically in the center, partially covering the product.
+            CONTENT: Comments should say things like 'I need this!', 'Life saver 😍', 'Best purchase ever'.
+            VIBE: Viral sensation, overwhelming social proof.
+            `;
+        }
+        break;
+
+    case CreativeFormat.STICKY_NOTE_REALISM:
+        medium = "REALISTIC PHOTO";
+        isLoFi = true;
+        if (!sceneDescription) {
+            sceneDescription = `
+            A yellow Post-it note is stuck physically onto the packaging of ${project.productName} or on a mirror next to it.
+            TEXT: Handwritten black marker text on the note saying: "${angleHeadline}".
+            STYLE: Authentic, messy, real life texture.
+            `;
+        }
+        break;
+
+    case CreativeFormat.HANDHELD_TWEET:
+        medium = "POV PHOTOGRAPHY WITH UI OVERLAY";
+        isLoFi = true;
+        if (!sceneDescription) {
+            sceneDescription = `
+            First-person POV shot of a hand holding ${project.productName} in a bathroom or bedroom.
+            OVERLAY: A sharp, crisp Twitter/X post card floating in the center.
+            TWEET CONTENT: User avatar + Text saying: "${angleHeadline}".
+            VIBE: Storytelling, candid, relatable.
+            `;
+        }
         break;
 
     // --- LO-FI / RAW (UGLY) ---

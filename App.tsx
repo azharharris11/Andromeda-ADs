@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef } from 'react';
 import { HashRouter } from 'react-router-dom';
 import { Layers, Settings, Activity, Microscope, ShieldCheck, X, RefreshCw, Globe, Sparkles, Image as ImageIcon, Upload, Package, Megaphone, Filter, Target, FileText, MapPin, Info, Smartphone } from 'lucide-react';
@@ -29,12 +30,19 @@ const FORMAT_GROUPS: Record<string, CreativeFormat[]> = {
     CreativeFormat.CAROUSEL_PHOTO_DUMP,
   ],
   "Instagram Native": [
-    CreativeFormat.TWITTER_REPOST,
+    CreativeFormat.STORY_QNA, 
     CreativeFormat.STORY_POLL,
     CreativeFormat.REELS_THUMBNAIL,
     CreativeFormat.DM_NOTIFICATION,
     CreativeFormat.UGC_MIRROR,
     CreativeFormat.PHONE_NOTES,
+    CreativeFormat.TWITTER_REPOST,
+  ],
+  "Direct Response Winners": [
+    CreativeFormat.BENEFIT_POINTERS, // NEW
+    CreativeFormat.SOCIAL_COMMENT_STACK, // NEW
+    CreativeFormat.STICKY_NOTE_REALISM, // NEW
+    CreativeFormat.HANDHELD_TWEET, // NEW
   ],
   "Logic & Rational": [
     CreativeFormat.US_VS_THEM,

@@ -31,7 +31,8 @@ export enum CreativeFormat {
   TWITTER_REPOST = 'Twitter/X Repost',
   PHONE_NOTES = 'iPhone Notes App',
   AESTHETIC_MINIMAL = 'Aesthetic / Text Overlay',
-  STORY_POLL = 'Fake Interactive Story',
+  STORY_POLL = 'Story: Standard Poll (Yes/No)',
+  STORY_QNA = 'Story: Ask Me Anything (Influencer Style)', 
   REELS_THUMBNAIL = 'Reels Cover / Fake Video',
   DM_NOTIFICATION = 'DM Notification',
   UGC_MIRROR = 'UGC Mirror Selfie',
@@ -44,15 +45,19 @@ export enum CreativeFormat {
   // New: Voyeurism & Social
   CHAT_CONVERSATION = 'Chat Bubble / WhatsApp',
   REMINDER_NOTIF = 'Lockscreen Reminder',
+  SOCIAL_COMMENT_STACK = 'Social Comment Stack', // NEW
+  HANDHELD_TWEET = 'Handheld Tweet Overlay',     // NEW
 
   // New: Product Centric
   POV_HANDS = 'POV / Hands-on',
   ANNOTATED_PRODUCT = 'Annotated / Feature Breakdown',
   SEARCH_BAR = 'Search Bar UI',
+  BENEFIT_POINTERS = 'Benefit Pointers / Anatomy', // NEW
 
   // New: Aesthetic & Mood
   COLLAGE_SCRAPBOOK = 'Collage / Scrapbook',
-  CHECKLIST_TODO = 'Checklist / To-Do'
+  CHECKLIST_TODO = 'Checklist / To-Do',
+  STICKY_NOTE_REALISM = 'Sticky Note / Handwritten' // NEW
 }
 
 export enum CampaignStage {
